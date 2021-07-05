@@ -9,7 +9,7 @@
 #    If the same barcode is used in both ends simply repeat barcode.
 #    
 # IMPLEMENTATION
-#    author	SÃ¸ren Karst (sorenkarst@gmail.com)
+#    author	Søren Karst (sorenkarst@gmail.com)
 #               Ryan Ziels (ziels@mail.ubc.ca)
 #    license	GNU General Public License
 #
@@ -22,17 +22,14 @@
 
 USAGE="
 -- longread_umi demultiplex: Dual barcode demultiplexing
-
    Script for demultiplexing UMI consensus sequences based on 
    custom barcodes. The script demultiplexes raw read data
    and assigns the consensus sequences to a sample by majority vote
    of the raw read assignments. Post processing demultiplxing optimizes 
    consensus yield. The script expects dual barcodes in a barcode file.
    If the same barcode is used in both ends simply repeat barcode.
-
 usage: $(basename "$0" .sh) [-h] (-c file -r file -u file -o dir -b file)
 (-p string -n range -t value) 
-
 where:
     -h  Show this help text.
     -c  UMI consensus sequences that need demultiplexing.
@@ -45,7 +42,6 @@ where:
     -p  Barcode name prefix [Default = 'barcode'].
     -n  Barcode numbers used. [Default  = '1-120'].
     -t  Number of threads used.
-
 "
 
 ### Terminal Arguments ---------------------------------------------------------
@@ -61,7 +57,7 @@ while getopts ':hzd:c:r:u:o:b:p:n:t:' OPTION; do
 	b) BARCODE_FILE=$OPTARG;;
 	p) BARCODE_PREFIX=$OPTARG;;
 	n) BARCODE_RANGES=$OPTARG;;
-    t) THREADS==$OPTARG;;
+    t) THREADS=$OPTARG;;
     :) printf "missing argument for -$OPTARG\n" >&2; exit 1;;
     \?) printf "invalid option for -$OPTARG\n" >&2; exit 1;;
   esac
@@ -153,15 +149,15 @@ demultiplex_cutadapt(){
   # Input from stdin
   $GAWK '
     NR%4==1{print}
-    NR%4==2{print substr($0,1,150)"XXXXXXXXXXX" substr($0,length($0)-149,150)}
+    NR%4==2{print substr($0,1,200)"XXXXXXXXXXX" substr($0,length($0)-199,200)}
     NR%4==3{print}
-    NR%4==0{print substr($0,1,150)"XXXXXXXXXXX" substr($0,length($0)-149,150)}
+    NR%4==0{print substr($0,1,200)"XXXXXXXXXXX" substr($0,length($0)-199,200)}
   ' |\
   $CUTADAPT \
     -e 0.15 \
     -O 17 \
     -g file:<(echo "$BC") \
-    -o $OUTDIR/${JOBNR}_{name}.fastq \
+    -o $OUTDIR/${JOBNR}tmp_{name}.fastq \
     -
 }
 
@@ -172,8 +168,8 @@ $GNUPARALLEL \
   --env demultiplex_cutadapt \
   --progress \
   -j $THREADS \
-  -L4 \
-  -N100 \
+  -L 4 \
+  -N 100 \
   --roundrobin \
   --pipe \
   "demultiplex_cutadapt \
@@ -195,7 +191,7 @@ $GAWK '
   FNR%4==1{
     READ=substr($1,2)
 	  SAMPLE=FILENAME
-	  sub(".*_", "", SAMPLE)
+	  sub(".*tmp_", "", SAMPLE)
 	  sub(".fastq", "", SAMPLE)
     u2s[u2r[READ]][SAMPLE]++
 	  utr[u2r[READ]]++
@@ -219,7 +215,7 @@ $GAWK '
 	}
   }
 ' $UMI_BIN_RESULTS $OUT_DIR/*${BARCODE_PREFIX}*fastq > $OUT_DIR/demultiplex.txt
-rm ./$OUT_DIR/*.fastq
+rm $OUT_DIR/*tmp_*fastq
 
 # Demultiplexing consensus
 $GAWK -v OUT_DIR="$OUT_DIR" '

@@ -204,8 +204,10 @@ $GNUPARALLEL \
      $CHUNK_SIZE"
 
 # Stitch consensus sequences
+cat $OUT_DIR/mapping/*/*.fa > $OUT_DIR/mapping/ref.fa
 medaka stitch \
   $OUT_DIR/consensus/*_consensus.hdf \
+  $OUT_DIR/mapping/ref.fa \
   $OUT_DIR/consensus_${OUT_NAME}.fa
 
 # Clean consensus header
