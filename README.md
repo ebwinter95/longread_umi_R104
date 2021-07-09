@@ -38,6 +38,7 @@ SM Karst, RM Ziels, RH Kirkegaard, EA Sørensen, D. McDonald, Q Zhu, R Knight, &
 5. Test the pipeline
    ```
    source activate $(pwd)/longread_umi
+   
    longread_umi nanopore_pipeline \
      -d $(pwd)/longread_umi/longread_umi/test_data/test_reads.fq \
      -v 30 \
