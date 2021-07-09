@@ -14,6 +14,49 @@ SM Karst, RM Ziels, RH Kirkegaard, EA Sørensen, D. McDonald, Q Zhu, R Knight, &
 
 ## Installation
 
+### Conda (AAU users)
+1. Load Miniconda
+   ```
+   module load Miniconda3
+   ```
+2. Go to the directory where the installation will occur
+   ```
+   cd /path/to/local/installation
+   ```
+
+3. Download the installation script
+   ```
+   wget https://raw.githubusercontent.com/Serka-M/longread_umi/master/scripts/install_local.sh
+   ```
+   
+4. Make the script executable and install the pipeline
+   ```
+   chmod +x install_local.sh
+   ./install_local.sh
+   ```
+
+5. Test the pipeline
+   ```
+   source activate $(pwd)/longread_umi
+   longread_umi nanopore_pipeline \
+     -d $(pwd)/longread_umi/longread_umi/test_data/test_reads.fq \
+     -v 30 \
+     -o test_r941 \
+     -s 90 \
+     -e 90 \
+     -m 3500 \
+     -M 6000 \
+     -f CAAGCAGAAGACGGCATACGAGAT \
+     -F AGRGTTYGATYMTGGCTCAG \
+     -r AATGATACGGCGACCACCGAGATC \
+     -R CGACATCGAGGTGCCAAAC \
+     -c 3 \
+     -p 1 \
+     -q r941_min_sup_g507 \
+     -U r941_min_sup_g507 \
+     -t 5
+   ```
+
 ### Conda
 
 1. Requirements/Dependencies  
