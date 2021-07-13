@@ -204,7 +204,14 @@ $GNUPARALLEL \
      $CHUNK_SIZE"
 
 # Stitch consensus sequences
-cat $OUT_DIR/mapping/*/*.fa > $OUT_DIR/mapping/ref.fa
+echo "" > $OUT_DIR/mapping/ref.fa
+for file in $OUT_DIR/mapping/*
+do
+	name=$(basename $file)
+	name+=.fa
+	cat $file/$name >> $OUT_DIR/mapping/ref.fa
+done
+
 medaka stitch \
   $OUT_DIR/consensus/*_consensus.hdf \
   $OUT_DIR/mapping/ref.fa \
