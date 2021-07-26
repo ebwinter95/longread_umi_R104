@@ -1,12 +1,12 @@
 #!/bin/bash
-
 # DESCRIPTION
 #    Script for binning long reads based on UMIs. Part of 
 #    longread_umi.
 #    
 # IMPLEMENTATION
-#    author   Søren Karst (sorenkarst@gmail.com)
+#    authors  Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 #
 # TO DO
@@ -379,14 +379,20 @@ $BWA samse -n 10000000 $BINNING_DIR/reads_tf_umi2.fa $BINNING_DIR/umi2_map.sai\
   $BINNING_DIR/umi_ref_b2.fa | $SAMTOOLS view -F 20 - > $BINNING_DIR/umi2_map.sam
 
 # UMI binning and filtering
+function umi_stats {
+
+umi1_map=$1
+umi2_map=$2
+output=$3
 
 $GAWK \
-  -v BD="$BINNING_DIR" \
-  -v UME_MATCH_ERROR="$UMI_MATCH_ERROR" \
-  -v UME_MATCH_ERROR_SD="$UMI_MATCH_ERROR_SD" \
-  -v RO_FRAC="$RO_FRAC" \
-  -v MAX_BIN_SIZE="$MAX_BIN_SIZE"  \
-  -v BIN_CLUSTER_RATIO="$BIN_CLUSTER_RATIO" \
+  -v BD="$(pwd)" \
+  -v output="$output" \
+  -v UME_MATCH_ERROR="$(cat conf/UMI_MATCH_ERROR.txt)" \
+  -v UME_MATCH_ERROR_SD="$(cat conf/UMI_MATCH_ERROR_SD.txt)"\
+  -v RO_FRAC="$(cat conf/RO_FRAC.txt)" \
+  -v MAX_BIN_SIZE="$(cat conf/MAX_BIN_SIZE.txt)"   \
+  -v BIN_CLUSTER_RATIO="$(cat conf/BIN_CLUSTER_RATIO.txt)"  \
   '
   NR==1 {
     print "[" strftime("%T") "] ### Read-UMI match filtering ###" > "/dev/stderr";
@@ -554,15 +560,11 @@ $GAWK \
     }
 
     # Print filtering stats
-    print "umi_name", "read_n_raw", "read_n_filt", "read_n_plus", "read_n_neg", \
-      "read_max_plus", "read_max_neg", "read_orientation_ratio", "ror_filter", \
-      "umi_match_error_mean", "umi_match_error_sd", "ume_filter", "bin_cluster_ratio", \
-      "bcr_filter" > BD"/umi_binning_stats.txt"
     for (u in umi_n){
       print u, umi_n_raw[u], umi_n[u], umi_ro_plus[u], umi_ro_neg[u], \
         rof_sub_pos_n[u] + umi_ro_plus[u], rof_sub_neg_n[u] + umi_ro_neg[u], rof_check[u], \
         UME_MEAN[u], UME_SD[u], ume_check[u], bcr[u], bcr_check[u]\
-        > BD"/umi_binning_stats.txt"
+        > BD"/stats/"output
     }
 	
     print "[" strftime("%T") "] Print UMI matches..." > "/dev/stderr"; 
@@ -572,16 +574,58 @@ $GAWK \
           ume_check[UMI_NAME] == "ume_ok" && \
           rof_check[UMI_NAME] == "rof_ok" && \
           bcr_check[UMI_NAME] == "bcr_ok" \
-      ){print UMI_NAME, s, match_err[s]}
+      ){print UMI_NAME, s, match_err[s]} 
     }
     # Print to terminal
     print "[" strftime("%T") "] Done." > "/dev/stderr"; 
   }
-' $BINNING_DIR/umi1_map.sam $BINNING_DIR/umi2_map.sam > $BINNING_DIR/umi_bin_map.txt
+' $umi1_map $umi2_map > mapping_res/$output
+}
 
+# Input/Ouput configuration
+cd $BINNING_DIR
+export -f umi_stats
+mkdir mapping_1
+mkdir mapping_2
+mkdir mapping_res
+mkdir conf
+mkdir ids
+mkdir stats
+echo "$UMI_MATCH_ERROR" > conf/UMI_MATCH_ERROR.txt
+echo "$UMI_MATCH_ERROR_SD" > conf/UMI_MATCH_ERROR_SD.txt
+echo "$RO_FRAC" > conf/RO_FRAC.txt 
+echo "$MAX_BIN_SIZE" > conf/MAX_BIN_SIZE.txt
+echo "$BIN_CLUSTER_RATIO" > conf/BIN_CLUSTER_RATIO.txt
+echo "umi_name read_n_raw read_n_filt read_n_plus read_n_neg read_max_plus read_max_neg read_orientation_ratio ror_filter umi_match_error_mean umi_match_error_sd ume_filter bin_cluster_ratio bcr_filter" > umi_binning_stats.txt
+
+# Get list of UMI IDs
+cut -f1 umi1_map.sam > umi1_id.txt
+cut -f1 umi2_map.sam > umi2_id.txt
+cat umi1_id.txt umi2_id.txt | sed '/_rc/d' | sort -u > umi_id.txt
+
+# Split the list into chunks for parallel processing
+splits=$THREADS
+if [ $splits -gt 99 ]; then splits=99; fi;
+split -n l/$splits -d umi_id.txt ids/id_
+
+# Generate subsets of the mapping files
+for file in ids/*; do
+	awk '$0=$0"_rc"' $file >> $file 
+	grep -w -F -f $file umi1_map.sam > mapping_1/"$(basename $file).sam"
+	grep -w -F -f $file umi2_map.sam > mapping_2/"$(basename $file).sam"
+done
+
+# Calculate UMI statistics and filter
+find ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=30 bash -c 'umi_stats mapping_1/{}.sam mapping_2/{}.sam {}.txt'
+cat mapping_res/*.txt > umi_bin_map.txt
+cat stats/*.txt >> umi_binning_stats.txt
+
+# Synchronisation with the rest of this special pipeline
+cd ..
+cd ..
+cd ..
 
 # Extract binned reads
-
 umi_binning() {
   # Input
   local UMIMAP=$1
