@@ -590,6 +590,7 @@ mkdir mapping_2
 mkdir mapping_res
 mkdir conf
 mkdir ids
+mkdir ids_rc
 mkdir stats
 echo "$UMI_MATCH_ERROR" > conf/UMI_MATCH_ERROR.txt
 echo "$UMI_MATCH_ERROR_SD" > conf/UMI_MATCH_ERROR_SD.txt
@@ -599,24 +600,26 @@ echo "$BIN_CLUSTER_RATIO" > conf/BIN_CLUSTER_RATIO.txt
 echo "umi_name read_n_raw read_n_filt read_n_plus read_n_neg read_max_plus read_max_neg read_orientation_ratio ror_filter umi_match_error_mean umi_match_error_sd ume_filter bin_cluster_ratio bcr_filter" > umi_binning_stats.txt
 
 # Get list of UMI IDs
-cut -f1 umi1_map.sam > umi1_id.txt
+cut -f1 umi1_map.sam > umi1_id.txt &
 cut -f1 umi2_map.sam > umi2_id.txt
 cat umi1_id.txt umi2_id.txt | sed '/_rc/d' | sort -u > umi_id.txt
 
 # Split the list into chunks for parallel processing
-splits=$THREADS
-if [ $splits -gt 99 ]; then splits=99; fi;
+splits=$(($THREADS / 2))
+if [ $splits -gt 50 ]; then splits=50; fi;
 split -n l/$splits -d umi_id.txt ids/id_
 
-# Generate subsets of the mapping files
 for file in ids/*; do
-	awk '$0=$0"_rc"' $file >> $file 
-	grep -w -F -f $file umi1_map.sam > mapping_1/"$(basename $file).sam"
-	grep -w -F -f $file umi2_map.sam > mapping_2/"$(basename $file).sam"
+	file=$(basename "$file")
+	awk '$0=$0"_rc"' ids/$file > ids_rc/$file
+	cat ids_rc/$file >> ids/$file 
 done
 
+# Generate subsets of the mapping files
+find ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f ids/{} umi1_map.sam > mapping_1/{}.sam & grep -w -F -f ids/{} umi2_map.sam > mapping_2/{}.sam'
+
 # Calculate UMI statistics and filter
-find ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=30 bash -c 'umi_stats mapping_1/{}.sam mapping_2/{}.sam {}.txt'
+find ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 2)) bash -c 'umi_stats mapping_1/{}.sam mapping_2/{}.sam {}.txt'
 cat mapping_res/*.txt > umi_bin_map.txt
 cat stats/*.txt >> umi_binning_stats.txt
 
