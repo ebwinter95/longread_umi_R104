@@ -701,9 +701,11 @@ aggregate_bins() {
 
 export -f aggregate_bins
 
-find $BINNING_DIR/bins/*/*/ -name "*bins.fastq" -printf "%f\n" |\
-  sort |\
-  uniq |\
+mkdir $BINNING_DIR/jobs
+find $BINNING_DIR/bins -type d -name "job*" -printf '%f\n' | xargs -i --max-procs=$THREADS  bash -c 'find analysis/umi_binning/read_binning/bins/{} -type f -name "*bins.fastq" > analysis/umi_binning/read_binning/jobs/{}'
+cat $BINNING_DIR/jobs/job* | awk -F / '{print $NF}' | sort | uniq > $BINNING_DIR/bins.txt
+
+cat $BINNING_DIR/bins.txt |\
   $GNUPARALLEL \
     --env aggregate_bins \
     -j $THREADS \
@@ -712,8 +714,6 @@ find $BINNING_DIR/bins/*/*/ -name "*bins.fastq" -printf "%f\n" |\
 
 rm -r $BINNING_DIR/bins/job*
 
-## Testing
-exit 0
 # Filtering based on sub UMIs
 cat \
   $UMI_DIR/reads_tf_start.fq \
