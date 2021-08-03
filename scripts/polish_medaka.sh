@@ -6,6 +6,7 @@
 # IMPLEMENTATION
 #    author   Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 # TODO
 #
@@ -209,7 +210,7 @@ for file in $OUT_DIR/mapping/*
 do
 	name=$(basename $file)
 	name+=.fa
-	cat $file/$name >> $OUT_DIR/mapping/ref.fa
+	if [ -f "$file/$name" ]; then cat $file/$name >> $OUT_DIR/mapping/ref.fa; fi;
 done
 
 medaka stitch \

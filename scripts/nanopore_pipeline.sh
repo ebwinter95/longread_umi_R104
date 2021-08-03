@@ -5,6 +5,7 @@
 # IMPLEMENTATION
 #    author   Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 #
 # To-do:
@@ -144,10 +145,9 @@ if [ -z ${MEDAKA_JOBS+x} ]; then echo "-T is missing. Medaka jobs set to 1."; ME
 
 if [ -d $OUT_DIR ]; then
   echo ""
-  echo "$OUT_DIR exists. Remove existing directory or rename desired output directory."
-  echo "Analysis aborted ..."
+  echo "$OUT_DIR file already exists! Abort now if this is unintended."
+  sleep 10
   echo ""
-  exit 1 
 else
   mkdir $OUT_DIR
 fi
@@ -155,7 +155,7 @@ fi
 ### Pipeline -----------------------------------------------------------
 # Logging
 LOG_DIR=$OUT_DIR/logs
-mkdir $LOG_DIR
+if [ ! -d "$LOG_DIR" ]; then mkdir $LOG_DIR; fi;
 
 LOG_NAME="$LOG_DIR/longread_umi_nanopore_pipeline_log_$(date +"%Y-%m-%d-%T").txt"
 echo "longread_umi nanopore_pipeline log" >> $LOG_NAME
@@ -271,6 +271,8 @@ longread_umi consensus_racon \
   -r $CON_N                               `# Number of racon polishing times`\
   -t $THREADS                             `# Number of threads`\
   -n $OUT_DIR/processed_bins.txt    `# List of bins to process`
+
+exit 0
 
 # Polishing
 CON=${CON_DIR}/consensus_${CON_NAME}.fa
