@@ -258,9 +258,13 @@ $GAWK \
   $UMI_DIR/read_binning/umi_binning_stats.txt |\
   sort -u \
   > $OUT_DIR/processed_bins.txt
-  
 
-# Consensus
+# Check if UMI binning completed successfully
+bins_n=$(awk 'END{print NR}' $OUT_DIR/processed_bins.txt)
+if [ ! $bins_n -ge 1 ]; then echo "ERROR in UMI binning stage. Aborting pipeline..." && exit 1; fi;
+
+
+# Racon consensus polishing
 CON_NAME=raconx${CON_N}
 CON_DIR=$OUT_DIR/$CON_NAME
 longread_umi consensus_racon \
@@ -272,9 +276,16 @@ longread_umi consensus_racon \
   -t $THREADS                             `# Number of threads`\
   -n $OUT_DIR/processed_bins.txt    `# List of bins to process`
 
-exit 0
+# Check if Racon polishing completed successfully
+if [ ! -f $CON_DIR/consensus_$CON_NAME.fa ]; then
+	echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1
+else
+	umis_n_rac=$(awk 'END{print NR}' $CON_DIR/consensus_$CON_NAME.fa)
+	if [ ! $umis_n_rac -ge 1 ]; then echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1; fi;
+fi
 
-# Polishing
+
+# Medaka polishing
 CON=${CON_DIR}/consensus_${CON_NAME}.fa
 for j in `seq 1 $POL_N`; do
   POLISH_NAME=medakax${j}

@@ -7,8 +7,9 @@
 #    This script is a part of the longread-UMI-pipeline.
 #
 # IMPLEMENTATION
-#    author	Søren Karst (sorenkarst@gmail.com)
-#               Ryan Ziels (ziels@mail.ubc.ca)
+#    author   Søren Karst (sorenkarst@gmail.com)
+#             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license	GNU General Public License
 
 ### Description ----------------------------------------------------------------
@@ -66,11 +67,13 @@ if [ -z ${THREADS+x} ]; then echo "-t is missing. Defaulting to 1 thread."; THRE
 ### Usearch centroid and racon polishing --------------------------------------
 
 # Prepare output folders
-if [ -d "$OUT" ]; then
-  echo "Output folder exists. Exiting..."
-  exit 0
+if [ ! -d "$OUT" ]; then mkdir $OUT; fi;
+
+# Skip Racon polishing if output already exists
+if [ -f $OUT/consensus_raconx$ROUNDS.fa ]; then
+	umis_n=$(awk 'END{print NR}' $OUT/consensus_raconx$ROUNDS.fa)
+	if [ $umis_n -ge 1 ]; then echo "Racon-polished UMI sequences found. Skipping..." && exit 0; fi;
 fi
-mkdir $OUT
 
 # Wrapper
 seed_racon () {
