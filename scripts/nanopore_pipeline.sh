@@ -281,7 +281,7 @@ if [ ! -f $CON_DIR/consensus_$CON_NAME.fa ]; then
 	echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1
 else
 	umis_n_rac=$(awk 'END{print NR}' $CON_DIR/consensus_$CON_NAME.fa)
-	if [ ! $umis_n_rac -ge 1 ]; then echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1; fi;
+	if [ ! $umis_n_rac -ge 2 ]; then echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1; fi;
 fi
 
 
@@ -301,7 +301,15 @@ for j in `seq 1 $POL_N`; do
     -T $MEDAKA_JOBS                      `# Uses ALL threads with medaka`
   CON=$POLISH_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa
 done
-  
+
+# Check if Medaka polishing completed successfully
+if [ ! -f $CON ]; then
+	echo "ERROR in Medaka polishing stage. Aborting pipeline..." && exit 1
+else
+	umis_n_medak=$(awk 'END{print NR}' $CON)
+	if [ ! $umis_n_medak -ge 2 ]; then echo "ERROR in Medaka polishing stage. Aborting pipeline..." && exit 1; fi;
+fi
+
 
 # Trim UMI consensus data
 longread_umi trim_amplicon \
@@ -315,9 +323,17 @@ longread_umi trim_amplicon \
   -t $THREADS             `# Number of threads` \
   -l $LOG_DIR
 
-# Generate variants
+# Check if UMI trimming completed successfully
+if [ ! -f analysis/$(basename $CON) ]; then
+	echo "ERROR in UMI consensus trimming stage. Aborting pipeline..." && exit 1
+else
+	umis_n_trim=$(awk 'END{print NR}' analysis/$(basename $CON))
+	if [ ! $umis_n_trim -ge 2 ]; then echo "ERROR in UMI consensus trimming stage. Aborting pipeline..." && exit 1; fi;
+fi
+
 
 ## Subset to UMI consensus sequences with min read coverage
+if [ ! -f $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa ]; then
 $GAWK -v UBS="$UMI_COVERAGE_MIN" '
   /^>/{
     match($0,/;ubs=([0-9]+)/, s)
@@ -329,6 +345,7 @@ $GAWK -v UBS="$UMI_COVERAGE_MIN" '
   }
 ' $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa \
 > $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa
+fi
 
 ## Variant calling of from UMI consensus sequences
 longread_umi variants \
@@ -336,5 +353,15 @@ longread_umi variants \
   -o $OUT_DIR/variants `# Output folder`\
   -t $THREADS `# Number of threads`
 
-## Copy variants
-cp $OUT_DIR/variants/variants.fa $OUT_DIR
+## Wrap-up
+if [ -f $OUT_DIR/variants/variants.fa ]; then
+	cp $OUT_DIR/variants/variants.fa $OUT_DIR
+	echo ""
+	echo "Pipeline completed at $(date "+%Y-%m-%d %H:%M:%S")"
+	echo "No. of UMIs generated: $(( $(awk 'END{print NR}' $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa)/2 ))"
+	echo "No. of UMIs after coverage filtering: $(( $(awk 'END{print NR}' $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa)/2 ))"
+	echo "No. of UMI variants: $(( $(awk 'END{print NR}' $OUT_DIR/variants.fa)/2 ))"
+	exit 0
+else
+	echo "ERROR in UMI variant generation" && exit 1
+fi

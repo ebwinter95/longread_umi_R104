@@ -72,7 +72,7 @@ if [ ! -d "$OUT" ]; then mkdir $OUT; fi;
 # Skip Racon polishing if output already exists
 if [ -f $OUT/consensus_raconx$ROUNDS.fa ]; then
 	umis_n=$(awk 'END{print NR}' $OUT/consensus_raconx$ROUNDS.fa)
-	if [ $umis_n -ge 1 ]; then echo "Racon-polished UMI sequences found. Skipping..." && exit 0; fi;
+	if [ $umis_n -ge 2 ]; then echo "Racon-polished UMI sequences found. Skipping..." && exit 0; fi;
 fi
 
 # Wrapper

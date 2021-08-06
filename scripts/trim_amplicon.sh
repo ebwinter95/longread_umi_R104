@@ -6,6 +6,7 @@
 # IMPLEMENTATION
 #    author   Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 
 ### Description ----------------------------------------------------------------
@@ -72,6 +73,12 @@ IN_DIR_F=$(echo $IN_DIR | sed -e 's/[,;\t]/ /g')
 IN_REGEX_F=$(echo $IN_REGEX |\
   sed -e 's/^/-name /g' \
       -e 's/[,;\t]/ -o -name /g')
+
+# Skip trimming if output already exists
+if [ -f "analysis/consensus_$(basename $IN_DIR_F).fa" ]; then
+	umis_n=$(awk 'END{print NR}' analysis/consensus_$(basename $IN_DIR_F).fa)
+	if [ $umis_n -ge 2 ]; then echo "Trimmed UMI consensus sequences found. Skipping..." && exit 0; fi;
+fi
 
 ### Primer formating
 revcom() {

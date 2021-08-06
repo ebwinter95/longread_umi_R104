@@ -6,6 +6,7 @@
 # IMPLEMENTATION
 #    author   Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 # TODO
 # - extract_vars and bin_vars can greately simplified by proper use
@@ -54,6 +55,12 @@ if [ -z ${CONSENSUS_FILE+x} ]; then echo "-c $MISSING"; echo "$USAGE"; exit 1; f
 if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi; 
 if [ -z ${THREADS+x} ]; then echo "-t is missing. Defaulting to 1 thread."; THREADS=1; fi;
 if [ -z ${DEBUG+x} ]; then DEBUG="NO"; fi;
+
+# Skip variant calling if output already exists
+if [ -f $OUT_DIR/variants.fa ]; then
+	umis_n=$(awk 'END{print NR}' $OUT_DIR/variants.fa)
+	if [ $umis_n -ge 2 ]; then echo "UMI variant sequences found. Skipping..." && exit 0; fi;
+fi
 
 ### Source commands and subscripts -------------------------------------
 . $LONGREAD_UMI_PATH/scripts/dependencies.sh # Path to dependencies script
@@ -423,12 +430,8 @@ CONSENSUS_NAME=${CONSENSUS_FILE##*/}
 CONSENSUS_NAME=${CONSENSUS_NAME%.*}
 
 # Prepare output folders
-if [ -d "$OUT_DIR" ]; then
-  echo "Output folder exists. Exiting..."
-  exit 0
-fi
-mkdir $OUT_DIR
-mkdir $OUT_DIR/clusters
+if [ ! -d "$OUT_DIR" ]; then mkdir $OUT_DIR; fi;
+if [ ! -d "$OUT_DIR/clusters" ]; then mkdir $OUT_DIR/clusters; fi;
 
 # Hard mask homopolymers
 $SEQTK seq -l0 $CONSENSUS_FILE |\

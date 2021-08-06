@@ -62,13 +62,17 @@ if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi;
 if [ -z ${THREADS+x} ]; then echo "-t $MISSING"; echo "$USAGE"; exit 1; fi; 
 if [ -z ${MEDAKA_JOBS+x} ]; then echo "-T is missing. Defaulting to 1 Medaka job."; MEDAKA_JOBS=1; fi;
 
-### Source commands and subscripts -------------------------------------
+### Source commands and subscripts
 . $LONGREAD_UMI_PATH/scripts/dependencies.sh # Path to dependencies script
-
-### Medaka polishing assembly -------------------------------------------------
 
 # Format names
 OUT_NAME=${OUT_DIR##*/}
+
+# Skip Medaka polishing if output already exists
+if [ -f $OUT_DIR/consensus_$OUT_NAME.fa ]; then
+	umis_n=$(awk 'END{print NR}' $OUT_DIR/consensus_${OUT_NAME}.fa)
+	if [ $umis_n -ge 2 ]; then echo "UMI sequences found for $OUT_NAME. Skipping..." && exit 0; fi;
+fi
 
 # Medaka jobs
 MEDAKA_THREADS=$(( THREADS/MEDAKA_JOBS ))
@@ -77,16 +81,10 @@ MEDAKA_THREADS=$(( THREADS/MEDAKA_JOBS ))
 eval "$MEDAKA_ENV_START"
 
 # Prepare output folders
-if [ -d "$OUT_DIR" ]; then
-  echo "Output folder exists. Exiting..."
-  exit 0
-fi
-mkdir $OUT_DIR
+if [ ! -d "$OUT_DIR" ]; then mkdir $OUT_DIR; fi;
+if [ ! -d "$OUT_DIR/mapping" ]; then mkdir $OUT_DIR/mapping; fi;
 
 # Individual mapping of UMI bins to consensus
-
-mkdir $OUT_DIR/mapping 
-
 medaka_align() {
   # Input
   local IN=$(cat)
@@ -205,7 +203,7 @@ $GNUPARALLEL \
      $CHUNK_SIZE"
 
 # Stitch consensus sequences
-echo "" > $OUT_DIR/mapping/ref.fa
+> $OUT_DIR/mapping/ref.fa
 for file in $OUT_DIR/mapping/*
 do
 	name=$(basename $file)
