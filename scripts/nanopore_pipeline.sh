@@ -145,7 +145,7 @@ if [ -z ${MEDAKA_JOBS+x} ]; then echo "-T is missing. Medaka jobs set to 1."; ME
 
 if [ -d $OUT_DIR ]; then
   echo ""
-  echo "$OUT_DIR file already exists! Abort now if this is unintended."
+  echo "Directory for output $OUT_DIR already exists! Abort now if this is unintended."
   sleep 10
   echo ""
 else
@@ -359,9 +359,9 @@ if [ -f $OUT_DIR/variants/variants.fa ]; then
 	cp $OUT_DIR/variants/variants.fa $OUT_DIR
 	echo ""
 	echo "Pipeline completed at $(date "+%Y-%m-%d %H:%M:%S")"
-	echo "No. of UMIs generated: $(( $(awk 'END{print NR}' $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa)/2 ))"
-	echo "No. of UMIs after coverage filtering: $(( $(awk 'END{print NR}' $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa)/2 ))"
-	echo "No. of UMI variants: $(( $(awk 'END{print NR}' $OUT_DIR/variants.fa)/2 ))"
+	echo "No. of UMIs generated: $(grep ">" $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa | wc -l)"
+	echo "No. of UMIs after coverage filtering: $(grep ">" $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa | wc -l)"
+	echo "No. of UMI variants: $(grep ">" $OUT_DIR/variants.fa | wc -l)"
 	exit 0
 else
 	echo "ERROR in UMI variant generation" && exit 1

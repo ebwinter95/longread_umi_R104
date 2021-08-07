@@ -75,8 +75,8 @@ IN_REGEX_F=$(echo $IN_REGEX |\
       -e 's/[,;\t]/ -o -name /g')
 
 # Skip trimming if output already exists
-if [ -f "analysis/consensus_$(basename $IN_DIR_F).fa" ]; then
-	umis_n=$(awk 'END{print NR}' analysis/consensus_$(basename $IN_DIR_F).fa)
+if [ -f "$OUT_DIR/consensus_$(basename $IN_DIR_F).fa" ]; then
+	umis_n=$(awk 'END{print NR}' $OUT_DIR/consensus_$(basename $IN_DIR_F).fa)
 	if [ $umis_n -ge 2 ]; then echo "Trimmed UMI consensus sequences found. Skipping..." && exit 0; fi;
 fi
 
