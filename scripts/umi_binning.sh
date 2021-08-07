@@ -113,7 +113,7 @@ RV2R=$(revcom "$RV2")
 
 ### Read trimming and filtering -----------------------------------------------
 if [ ! -d "$OUT_DIR" ]; then mkdir $OUT_DIR; fi;
-TRIM_DIR=$OUT_DIR/trim
+TRIM_DIR=$(pwd)/$OUT_DIR/trim
 if [ ! -d "$TRIM_DIR" ]; then mkdir $TRIM_DIR; fi;
 
 if [ ! -f "$TRIM_DIR/reads_tf.fq" ]; then
@@ -159,7 +159,7 @@ else echo "Trimmed reads found. Skipping..."; fi;
 
 ### Extract UMI references sequences ------------------------------------------- 
 if [ ! -d "$OUT_DIR/umi_ref" ]; then mkdir $OUT_DIR/umi_ref; fi;
-UMI_DIR=$OUT_DIR/umi_ref
+UMI_DIR=$(pwd)/$OUT_DIR/umi_ref
 
 if [ ! -f "$UMI_DIR/umi_ref.txt" ]; then
 
@@ -333,7 +333,7 @@ else echo "Extracted UMI sequences found. Skipping..."; fi;
 ### Bin reads based on UMIs ----------------------------------------------------
 if [ ! -d "$OUT_DIR/read_binning" ]; then mkdir $OUT_DIR/read_binning; fi;
 if [ ! -d "$OUT_DIR/read_binning/bins" ]; then mkdir $OUT_DIR/read_binning/bins; fi;
-BINNING_DIR=$OUT_DIR/read_binning
+BINNING_DIR=$(pwd)/$OUT_DIR/read_binning
 
 if [ ! -f "$BINNING_DIR/umi1_map.sam" ] && [ ! -f "$BINNING_DIR/umi2_map.sam" ]; then
 
@@ -390,6 +390,7 @@ $BWA samse -n 10000000 $BINNING_DIR/reads_tf_umi2.fa $BINNING_DIR/umi2_map.sai\
 
 else echo "UMI mapping files found. Skipping..."; fi;
 
+
 # UMI binning and filtering
 function umi_stats {
 
@@ -398,13 +399,13 @@ umi2_map=$2
 output=$3
 
 $GAWK \
-  -v BD="$(pwd)/analysis/umi_binning/read_binning/" \
+  -v BD="$(pwd)/umi_binning/read_binning/" \
   -v output="$output" \
-  -v UME_MATCH_ERROR="$(cat analysis/umi_binning/read_binning/conf/UMI_MATCH_ERROR.txt)" \
-  -v UME_MATCH_ERROR_SD="$(cat analysis/umi_binning/read_binning/conf/UMI_MATCH_ERROR_SD.txt)"\
-  -v RO_FRAC="$(cat analysis/umi_binning/read_binning/conf/RO_FRAC.txt)" \
-  -v MAX_BIN_SIZE="$(cat analysis/umi_binning/read_binning/conf/MAX_BIN_SIZE.txt)"   \
-  -v BIN_CLUSTER_RATIO="$(cat analysis/umi_binning/read_binning/conf/BIN_CLUSTER_RATIO.txt)"  \
+  -v UME_MATCH_ERROR="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR.txt)" \
+  -v UME_MATCH_ERROR_SD="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR_SD.txt)"\
+  -v RO_FRAC="$(cat umi_binning/read_binning/conf/RO_FRAC.txt)" \
+  -v MAX_BIN_SIZE="$(cat umi_binning/read_binning/conf/MAX_BIN_SIZE.txt)"   \
+  -v BIN_CLUSTER_RATIO="$(cat umi_binning/read_binning/conf/BIN_CLUSTER_RATIO.txt)"  \
   '
   NR==1 {
     print "[" strftime("%T") "] ### Read-UMI match filtering ###" > "/dev/stderr";
@@ -591,8 +592,12 @@ $GAWK \
     # Print to terminal
     print "[" strftime("%T") "] Done." > "/dev/stderr"; 
   }
-' $umi1_map $umi2_map > analysis/umi_binning/read_binning/mapping_res/$output
+' $umi1_map $umi2_map > umi_binning/read_binning/mapping_res/$output
 }
+
+# Configure pathing
+cd $OUT_DIR
+cd ..
 
 if [ ! -f "$BINNING_DIR/umi_bin_map.txt" ]; then
 
@@ -629,10 +634,10 @@ for file in $BINNING_DIR/ids/*; do
 done
 
 # Generate subsets of the mapping files
-find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f analysis/umi_binning/read_binning/ids/{} analysis/umi_binning/read_binning/umi1_map.sam > analysis/umi_binning/read_binning/mapping_1/{}.sam & grep -w -F -f analysis/umi_binning/read_binning/ids/{} analysis/umi_binning/read_binning/umi2_map.sam > analysis/umi_binning/read_binning/mapping_2/{}.sam'
+find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi1_map.sam > umi_binning/read_binning/mapping_1/{}.sam & grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi2_map.sam > umi_binning/read_binning/mapping_2/{}.sam'
 
 # Calculate UMI statistics and filter
-find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 2)) bash -c 'umi_stats analysis/umi_binning/read_binning/mapping_1/{}.sam analysis/umi_binning/read_binning/mapping_2/{}.sam {}.txt'
+find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 2)) bash -c 'umi_stats umi_binning/read_binning/mapping_1/{}.sam umi_binning/read_binning/mapping_2/{}.sam {}.txt'
 cat $BINNING_DIR/mapping_res/*.txt > $BINNING_DIR/umi_bin_map.txt
 cat $BINNING_DIR/stats/*.txt >> $BINNING_DIR/umi_binning_stats.txt
 
@@ -657,7 +662,7 @@ umi_binning() {
 
   # Binning
   $GAWK -v out="$OUT" '
-    BEGIN {g=1; outsub="./"out"/"g; system("mkdir \047" outsub "\047");}
+    BEGIN {g=1; outsub=""out"/"g; system("mkdir \047" outsub "\047");}
     NR==FNR {
       # Get read name
       sub(";.*", "", $1);
@@ -672,7 +677,7 @@ umi_binning() {
           j = 0;
           g++;
           foldergrp[$1]=g;
-          outsub="./"out"/"g;
+          outsub=""out"/"g;
           system("mkdir \047" outsub "\047");
         }
       }
@@ -725,7 +730,7 @@ aggregate_bins() {
 export -f aggregate_bins
 
 mkdir $BINNING_DIR/jobs
-find $BINNING_DIR/bins -type d -name "job*" -printf '%f\n' | xargs -i --max-procs=$THREADS  bash -c 'find analysis/umi_binning/read_binning/bins/{} -type f -name "*bins.fastq" > analysis/umi_binning/read_binning/jobs/{}'
+find $BINNING_DIR/bins -type d -name "job*" -printf '%f\n' | xargs -i --max-procs=$THREADS  bash -c 'find umi_binning/read_binning/bins/{} -type f -name "*bins.fastq" > umi_binning/read_binning/jobs/{}'
 cat $BINNING_DIR/jobs/job* | awk -F / '{print $NF}' | sort | uniq > $BINNING_DIR/bins.txt
 rm -r $BINNING_DIR/jobs
 
@@ -809,3 +814,5 @@ $GAWK \
  > $UMI_DIR/umi12uf.fa
  
 else echo "Filtered UMI sequences found. Skipping..."; fi;
+
+cd ..

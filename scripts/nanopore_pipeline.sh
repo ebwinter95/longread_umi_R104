@@ -212,6 +212,7 @@ if [ -z ${UMI_DIR+x} ]; then
     -t $THREADS          `# Number of threads`
 fi
 
+
 # Sample UMI bins for testing
 $GAWK \
   -v SEED="$RANDOM"  \
@@ -324,10 +325,10 @@ longread_umi trim_amplicon \
   -l $LOG_DIR
 
 # Check if UMI trimming completed successfully
-if [ ! -f analysis/$(basename $CON) ]; then
+if [ ! -f $OUT_DIR/$(basename $CON) ]; then
 	echo "ERROR in UMI consensus trimming stage. Aborting pipeline..." && exit 1
 else
-	umis_n_trim=$(awk 'END{print NR}' analysis/$(basename $CON))
+	umis_n_trim=$(awk 'END{print NR}' $OUT_DIR/$(basename $CON))
 	if [ ! $umis_n_trim -ge 2 ]; then echo "ERROR in UMI consensus trimming stage. Aborting pipeline..." && exit 1; fi;
 fi
 
