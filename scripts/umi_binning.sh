@@ -624,7 +624,7 @@ cat $BINNING_DIR/umi1_id.txt $BINNING_DIR/umi2_id.txt | sed '/_rc/d' | sort -u >
 
 # Split the list into chunks for parallel processing
 splits=$(($THREADS / 2))
-if [ $splits -gt 50 ]; then splits=50; fi;
+if [ $splits -gt 60 ]; then splits=60; fi;
 split -n l/$splits -d $BINNING_DIR/umi_id.txt $BINNING_DIR/ids/id_
 
 for file in $BINNING_DIR/ids/*; do
@@ -637,20 +637,20 @@ done
 find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi1_map.sam > umi_binning/read_binning/mapping_1/{}.sam & grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi2_map.sam > umi_binning/read_binning/mapping_2/{}.sam'
 
 # Calculate UMI statistics and filter
-find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 2)) bash -c 'umi_stats umi_binning/read_binning/mapping_1/{}.sam umi_binning/read_binning/mapping_2/{}.sam {}.txt'
+find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 3)) bash -c 'umi_stats umi_binning/read_binning/mapping_1/{}.sam umi_binning/read_binning/mapping_2/{}.sam {}.txt'
 cat $BINNING_DIR/mapping_res/*.txt > $BINNING_DIR/umi_bin_map.txt
 cat $BINNING_DIR/stats/*.txt >> $BINNING_DIR/umi_binning_stats.txt
 
 # Clean-up
-rm $BINNING_DIR/umi1_id.txt
-rm $BINNING_DIR/umi2_id.txt
-rm -r $BINNING_DIR/ids
-rm -r $BINNING_DIR/ids_rc
-rm -r $BINNING_DIR/mapping_1
-rm -r $BINNING_DIR/mapping_2
-rm -r $BINNING_DIR/mapping_res
-rm -r $BINNING_DIR/stats
-rm -r $BINNING_DIR/conf
+#rm $BINNING_DIR/umi1_id.txt
+#rm $BINNING_DIR/umi2_id.txt
+#rm -r $BINNING_DIR/ids
+#rm -r $BINNING_DIR/ids_rc
+#rm -r $BINNING_DIR/mapping_1
+#rm -r $BINNING_DIR/mapping_2
+#rm -r $BINNING_DIR/mapping_res
+#rm -r $BINNING_DIR/stats
+#rm -r $BINNING_DIR/conf
 
 else echo "UMI-to-bin links found. Skipping..."; fi;
 
@@ -741,7 +741,7 @@ cat $BINNING_DIR/bins.txt |\
 	"aggregate_bins '$BINNING_DIR/bins/*/*/'{/} \
     $BINNING_DIR/bins {/} {#}"
 
-rm -r $BINNING_DIR/bins/job*
+#rm -r $BINNING_DIR/bins/job*
 
 else echo "List of UMI bins found. Skipping..."; fi;
 
