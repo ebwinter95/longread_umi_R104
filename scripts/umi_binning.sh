@@ -120,7 +120,40 @@ if [ ! -f "$TRIM_DIR/reads_tf.fq" ]; then
 
 # Trim data
 if [ -z ${TRIM_FLAG+x} ]; then
+# Prepare porechop adapters
 
+  # Define part of adapters.py to modify
+  LEAD='^                    end_sequence=('\''SQK-NSK007_Y_Bottom'\'', '\''GCAATACGTAACTGAACGAAGT'\'')),$'
+  TAIL='^def make_full_native_barcode_adapter(barcode_num):'
+  
+  # Format adapters - 12 bp substrings
+  FW1_12=$(echo ${FW1:0:12})
+  RV1_12=$(echo ${RV1:0:12})
+  FW1R_12=$(revcom "$FW1_12")
+  RV1R_12=$(revcom "$RV1_12")
+  
+  # Generate custom adapters.py
+  ADAPTER_FMT="
+            Adapter('LU_ADP_FWRV',
+                    start_sequence=('lu_adpfwrv', '${FW1R_12}${RV1_12}'),
+                    end_sequence=('lu_adpfwrv_rv', '${RV1R_12}${FW1_12}')),
+            Adapter('LU_ADP_FWFW',
+                    start_sequence=('lu_adpfwfw', '${FW1R_12}${FW1_12}'),
+                    end_sequence=('lu_adpfwfw_rv', '${FW1R_12}${FW1_12}')),
+            Adapter('LU_ADP_RVRV',
+                    start_sequence=('lu_adprvrv', '${RV1R_12}${RV1_12}'),
+                    end_sequence=('lu_adprvrv_rv', '${RV1R_12}${RV1_12}'))]"
+
+  echo -e "$ADAPTER_FMT\n\n\n" > $TRIM_DIR/adapters.tmp
+
+  sed \
+  -e "/$LEAD/,/$TAIL/{ /$LEAD/{p; r $TRIM_DIR/adapters.tmp
+      }; /$TAIL/p; d }"  $LONGREAD_UMI_PATH/scripts/adapters.py \
+  > $TRIM_DIR/adapters.py
+  
+  # Add working folder to python path
+  export PYTHONPATH=$PYTHONPATH:$TRIM_DIR
+  
   # Perform porechop and filtlong in parallel
   FT_THREADS=$(( $THREADS/10 ))
   if (( FT_THREADS < 1 )); then
@@ -150,9 +183,10 @@ if [ -z ${TRIM_FLAG+x} ]; then
   # Concatenate temp files
   cat $TRIM_DIR/*_filt.tmp > $TRIM_DIR/reads_tf.fq
   rm $TRIM_DIR/*.tmp
+  rm -rf $TRIM_DIR/__pycache__
 else
 # Create symlink if already trimmed.
-  ln -s $PWD/$READ_IN $PWD/$TRIM_DIR/reads_tf.fq  
+  ln -s $(readlink -f $READ_IN) $(readlink -f $TRIM_DIR)/reads_tf.f  
 fi
 
 else echo "Trimmed reads found. Skipping..."; fi;
@@ -161,7 +195,7 @@ else echo "Trimmed reads found. Skipping..."; fi;
 if [ ! -d "$OUT_DIR/umi_ref" ]; then mkdir $OUT_DIR/umi_ref; fi;
 UMI_DIR=$(pwd)/$OUT_DIR/umi_ref
 
-if [ ! -f "$UMI_DIR/umi_ref.txt" ]; then
+if [ ! -f "$UMI_DIR/umi_ref_derivates.txt" ]; then
 
 # Extract UMI terminal region
 $GAWK -v UD="$UMI_DIR" 'NR%4==1{
@@ -181,7 +215,6 @@ $GAWK -v UD="$UMI_DIR" 'NR%4==1{
        print substr($0, length($0) - 199, 200)  > UD"/reads_tf_end.fq";  
      }
 ' $TRIM_DIR/reads_tf.fq
-
 
 # Extract UMI pairs with correct lengths
 $CUTADAPT -j $THREADS -e 0.2 -O 11 -m 18 -M 18 \
@@ -222,120 +255,76 @@ $USEARCH \
   -sizein \
   -sizeout \
   -strand both \
-  -minsize 1
-
-# Extract putative UMI pairs
-$CUTADAPT -j $THREADS -e 0.2 -O 11 -m 18 -l 18 \
-  --discard-untrimmed \
-  -g $FW1 -g $RV1 \
-  -G $RV2R -G $FW2R \
-  -o $UMI_DIR/umi1p.fq -p $UMI_DIR/umi2p.fq \
-  $UMI_DIR/reads_tf_start.fq $UMI_DIR/reads_tf_end.fq \
-  > $UMI_DIR/putative_trim.log
-
-paste -d "" <( sed -n '1~4s/^@/>/p;2~4p' $UMI_DIR/umi1p.fq ) \
-            <( sed -n '1~4s/^@/>/p;2~4p' $UMI_DIR/umi2p.fq ) |\
-  cut -d " " -f1 > $UMI_DIR/umi12p.fa
-
-$BWA index $UMI_DIR/umi12c.fa
-
-$BWA aln \
-  $UMI_DIR/umi12c.fa \
-  $UMI_DIR/umi12p.fa \
-  -n 6 \
-  -t $THREADS \
-  -N > $UMI_DIR/umi12p_map.sai
-$BWA samse \
-  -n 10000000 \
-  $UMI_DIR/umi12c.fa \
-  $UMI_DIR/umi12p_map.sai \
-  $UMI_DIR/umi12p.fa|\
-  $SAMTOOLS view -F 4 - \
-  > $UMI_DIR/umi12p_map.sam
+  -sort size \
+  -maxaccepts 0 \
+  -maxrejects 0 \
+  -mincols 34 # Doesn't work...
 
 $GAWK \
-  -v UMS="$UMI_DIR/umi12p_map.sam" \
-  -v UC="$UMI_DIR/umi12c.fa" \
   '
-  (FILENAME == UMS){
-      CLUSTER[$3]++
-  }
-  (FILENAME == UC && FNR%2==1){
-    NAME=substr($1,2)
-    if (NAME in CLUSTER){
-      if (CLUSTER[NAME]+0 > 2){
-        SIZE=CLUSTER[NAME]
-        gsub(";.*", "", NAME)
-        print ">" NAME ";size=" SIZE ";"
-        getline; print
-      }
+  /^>/{
+    SIZE=$0
+    gsub(".*size=|;", "", SIZE)
+    if (SIZE+0 >= 2){
+      print
+      getline
+      print
     }
   }
   ' \
-  $UMI_DIR/umi12p_map.sam \
   $UMI_DIR/umi12c.fa \
-  > $UMI_DIR/umi12cf.fa 
+  > $UMI_DIR/umi_ref.fa 
 
-# Remove potential chimeras
-paste <(cat $UMI_DIR/umi12cf.fa | paste - - ) \
-  <($GAWK '!/^>/{print}' $UMI_DIR/umi12cf.fa | rev | tr ATCG TAGC) |\
-  $GAWK -v UD="$UMI_DIR" 'NR==FNR {
-      #Format columns
-      split($1, a, /[>;]/);
-      sub("size=", "", a[3]);
-      # Extract UMI1 and UMI2 in both orientations
-      s1 = substr($2, 1, 18);
-      s2 = substr($2, 19, 36);
-      s1rc= substr($3, 1, 18);
-      s2rc= substr($3, 19, 36);
-      # Register UMI1 size if larger than current highest or if empty
-      if ((g1n[s1]+0) <= (a[3]+0) || g1n[s1] == ""){
-        g1n[s1] = a[3];
-        g1[s1] = a[2];
-      }
-      # Register UMI2 size if larger than current highest or if empty
-      if ((g2n[s2]+0) <= (a[3]+0) || g2n[s2] == ""){
-        g2n[s2] = a[3];
-        g2[s2] = a[2];
-      }
-      # Register UMI1rc size if larger than current highest or if empty
-      if ((g1n[s1rc]+0) <= (a[3]+0) || g1n[s1rc] == ""){
-        g1n[s1rc] = a[3];
-        g1[s1rc] = a[2];
-      }
-      # Register UMI2rc size if larger than current highest or if empty
-      if ((g2n[s2rc]+0) <= (a[3]+0) || g2n[s2rc] == ""){
-        g2n[s2rc] = a[3];
-        g2[s2rc] = a[2];
-      }
-      # Register UMI1 and UMI matches for current UMI
-      u[a[2]] = a[3];
-      s1a[a[2]] = s1;
-      s2a[a[2]] = s2;
-      s1arc[a[2]] = s1rc;
-      s2arc[a[2]] = s2rc;
-    } END {
-      for (i in u){
-        keep="no";
-        if (g1[s1a[i]] == i && g2[s2a[i]] == i && g1[s1arc[i]] == i && g2[s2arc[i]] == i && s1a[i] != s1arc[i]){
-          keep="yes";
-          print ">"i";"u[i]"\n"s1a[i]s2a[i] > UD"/umi_ref.fa";
-        } else if (s1a[i] == s1arc[i]){
-          keep="tandem"
-          print ">"i";"u[i]"\n"s1a[i]s2a[i] > UD"/umi_ref.fa";
-        }
-        print i, n[i], s1a[i], s2a[i], keep, g1[s1a[i]]"/"g2[s2a[i]]"/"g1[s1arc[i]]"/"g2[s2arc[i]], u[i]
-      }  
-    }' > $UMI_DIR/umi_ref.txt
+# Chimera screening
 
-else echo "Extracted UMI sequences found. Skipping..."; fi;
+# Split UMIs into sub UMIs
+$GAWK \
+  '
+    /^>/{
+      HEAD=$0
+      getline
+      print HEAD "_1\n" substr($0,1,18) "\n" HEAD "_2\n" substr($0,19,18)
+    }
+  ' $UMI_DIR/umi_ref.fa \
+  > $UMI_DIR/umi_ref_sub.fa
+
+# Cluster sub UMIs to detect chimeras
+$USEARCH \
+  -cluster_fast $UMI_DIR/umi_ref_sub.fa \
+  -id 0.94 \
+  -uc $UMI_DIR/umi_ref_chimera.txt \
+  -sizein \
+  -sizeout \
+  -strand both \
+  -sort size \
+  -maxaccepts 0 \
+  -maxrejects 0 \
+  -mincols 17
+
+# Derivate screening
+
+# Cluster UMIs to detect potential derivates
+$USEARCH \
+  -cluster_fast $UMI_DIR/umi_ref.fa \
+  -id 0.83 \
+  -uc $UMI_DIR/umi_ref_derivates.txt \
+  -sizein \
+  -sizeout \
+  -strand both \
+  -sort size \
+  -maxaccepts 0 \
+  -maxrejects 0 \
+  -mincols 32 
+
+else echo "Extracted UMI sequences found and chimera/derivate screening complete. Skipping..."; fi;
 
 ### Bin reads based on UMIs ----------------------------------------------------
 if [ ! -d "$OUT_DIR/read_binning" ]; then mkdir $OUT_DIR/read_binning; fi;
 if [ ! -d "$OUT_DIR/read_binning/bins" ]; then mkdir $OUT_DIR/read_binning/bins; fi;
-BINNING_DIR=$(pwd)/$OUT_DIR/read_binning
+export BINNING_DIR=$(pwd)/$OUT_DIR/read_binning
 
 if [ ! -f "$BINNING_DIR/umi1_map.sam" ] && [ ! -f "$BINNING_DIR/umi2_map.sam" ]; then
+
 
 # Extract UMI region
 $GAWK -v BD="$BINNING_DIR" -v TL="$START_READ_CHECK" '
@@ -375,21 +364,49 @@ cat $UMI_DIR/umi_ref.fa <($SEQTK seq -r $UMI_DIR/umi_ref.fa |\
 ## -F 20 : Removes unmapped and reverse read matches. Keeps UMIs
 ##         in correct orientations.
 
-$BWA index $BINNING_DIR/reads_tf_umi1.fa
-$BWA index $BINNING_DIR/reads_tf_umi2.fa
+$BWA index \
+  $BINNING_DIR/reads_tf_umi1.fa
+$BWA \
+  index \
+  $BINNING_DIR/reads_tf_umi2.fa
 
-$BWA aln $BINNING_DIR/reads_tf_umi1.fa $BINNING_DIR/umi_ref_b1.fa \
-  -n 3 -t $THREADS -N > $BINNING_DIR/umi1_map.sai
-$BWA samse -n 10000000 $BINNING_DIR/reads_tf_umi1.fa $BINNING_DIR/umi1_map.sai\
-  $BINNING_DIR/umi_ref_b1.fa | $SAMTOOLS view -F 20 - > $BINNING_DIR/umi1_map.sam
+$BWA aln \
+  $BINNING_DIR/reads_tf_umi1.fa \
+  $BINNING_DIR/umi_ref_b1.fa \
+  -n 3 \
+  -t $THREADS \
+  -N \
+  > $BINNING_DIR/umi1_map.sai
 
-$BWA aln $BINNING_DIR/reads_tf_umi2.fa $BINNING_DIR/umi_ref_b2.fa \
-  -n 3 -t $THREADS -N > $BINNING_DIR/umi2_map.sai
-$BWA samse -n 10000000 $BINNING_DIR/reads_tf_umi2.fa $BINNING_DIR/umi2_map.sai\
-  $BINNING_DIR/umi_ref_b2.fa | $SAMTOOLS view -F 20 - > $BINNING_DIR/umi2_map.sam
+$BWA samse \
+  -n 10000000 \
+  $BINNING_DIR/reads_tf_umi1.fa \
+  $BINNING_DIR/umi1_map.sai \
+  $BINNING_DIR/umi_ref_b1.fa |\
+$SAMTOOLS view \
+  -F 20 \
+  - \
+  > $BINNING_DIR/umi1_map.sam
+
+$BWA aln \
+  $BINNING_DIR/reads_tf_umi2.fa \
+  $BINNING_DIR/umi_ref_b2.fa \
+  -n 3 \
+  -t $THREADS \
+  -N \
+  > $BINNING_DIR/umi2_map.sai
+ 
+$BWA samse \
+  -n 10000000 \
+  $BINNING_DIR/reads_tf_umi2.fa \
+  $BINNING_DIR/umi2_map.sai \
+  $BINNING_DIR/umi_ref_b2.fa |\
+$SAMTOOLS view \
+  -F 20 \
+  - \
+  > $BINNING_DIR/umi2_map.sam
 
 else echo "UMI mapping files found. Skipping..."; fi;
-
 
 # UMI binning and filtering
 function umi_stats {
@@ -399,171 +416,222 @@ umi2_map=$2
 output=$3
 
 $GAWK \
-  -v BD="$(pwd)/umi_binning/read_binning/" \
+  -v BD="$BINNING_DIR" \
   -v output="$output" \
+  -v UM1="$umi1_map" \
+  -v UM2="$umi2_map" \
+  -v URC=umi_binning/umi_ref/umi_ref_chimera.txt \
+  -v URD=umi_binning/umi_ref/umi_ref_derivates.txt \
   -v UME_MATCH_ERROR="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR.txt)" \
-  -v UME_MATCH_ERROR_SD="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR_SD.txt)"\
+  -v UME_MATCH_ERROR_SD="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR_SD.txt)" \
   -v RO_FRAC="$(cat umi_binning/read_binning/conf/RO_FRAC.txt)" \
-  -v MAX_BIN_SIZE="$(cat umi_binning/read_binning/conf/MAX_BIN_SIZE.txt)"   \
-  -v BIN_CLUSTER_RATIO="$(cat umi_binning/read_binning/conf/BIN_CLUSTER_RATIO.txt)"  \
+  -v MAX_BIN_SIZE="$(cat umi_binning/read_binning/conf/MAX_BIN_SIZE.txt)"  \
+  -v BIN_CLUSTER_RATIO="$(cat umi_binning/read_binning/conf/BIN_CLUSTER_RATIO.txt)" \
   '
-  NR==1 {
-    print "[" strftime("%T") "] ### Read-UMI match filtering ###" > "/dev/stderr";
-    print "[" strftime("%T") "] Reading UMI1 match file..." > "/dev/stderr";
-  }
   # Read UMI match file
-  NR==FNR{
+  FILENAME == UM1 && FNR == 1 {
+    print "[" strftime("%T") "] ### Read-UMI match filtering ###" > "/dev/stderr"
+    print "[" strftime("%T") "] Reading UMI1 match file..." > "/dev/stderr"
+  }
+  FILENAME == UM1 {
     # Extract data from optional fields
     for (i=12; i <= NF; i++){
       # Find NM field and remove prefix (primary hit err)
-      if($i ~ /^NM:i:/){sub("NM:i:", "", $i); perr = $i};
+      if($i ~ /^NM:i:/){sub("NM:i:", "", $i); perr = $i}
       # Find secondary hit field, remove prefix and split hits
-      if($i ~ /^XA:Z:/){sub("XA:Z:", "", $i); split($i, shits, ";")};
+      if($i ~ /^XA:Z:/){sub("XA:Z:", "", $i); split($i, shits, ";")}
     }
     # Add primary mapping to hit list
-    err1[$1][$3]=perr;
+    err1[$1][$3]=perr
     # Add secondary mapping to hit list
     #Iterate over each hit
     for (i in shits){
       # Split hit in subdata (read, pos, cigar, err)  
-      split(shits[i], tmp, ",");
+      split(shits[i], tmp, ",")
       # Add hit if non-empty, not seen before and not target reverse strand
       if (tmp[1] != "" && !(tmp[1] in err1[$1]) && tmp[2] ~ "+"){
-        err1[$1][tmp[1]] = tmp[4];
+        err1[$1][tmp[1]] = tmp[4]
       }
     }
-    next;
   }
-  FNR==1 {
-   print "[" strftime("%T") "] Reading UMI2 match file..." > "/dev/stderr";
+  FILENAME == UM2 && FNR == 1 {
+   print "[" strftime("%T") "] Reading UMI2 match file..." > "/dev/stderr"
   }
   # Read UMI match file
-  {
+  FILENAME == UM2 {
     # Extract data from optional fields
     for (i=12; i <= NF; i++){
       # Find NM field and remove prefix (primary hit err)
-      if($i ~ /^NM:i:/){sub("NM:i:", "", $i); perr = $i};
+      if($i ~ /^NM:i:/){sub("NM:i:", "", $i); perr = $i}
       # Find secondary hit field and remove prefix
-      if($i ~ /^XA:Z:/){sub("XA:Z:", "", $i); split($i, shits, ";")};
+      if($i ~ /^XA:Z:/){sub("XA:Z:", "", $i); split($i, shits, ";")}
     }
     # Add primary mapping to hit list
-    err2[$1][$3]=perr;
+    err2[$1][$3]=perr
     # Add secondary mapping to hit list
     # Split list of hits 
     #Iterate over each hit
     for (i in shits){
       # Split hit in subdata (read, pos, cigar, err)
-      split(shits[i], tmp, ",");
+      split(shits[i], tmp, ",")
       # Add hit if non-empty, not seen before and not target reverse strand
       if (tmp[1] != "" && !(tmp[1] in err2[$1]) && tmp[2] ~ "+"){
-        err2[$1][tmp[1]] = tmp[4];
+        err2[$1][tmp[1]] = tmp[4]
       }
     }
-  } END {
-    print "[" strftime("%T") "] UMI match filtering..." > "/dev/stderr"; 
+  #--> Output is err1 and err2 2d arrays (umi x reads) where values are match errors
+  }
+  # Read chimera check file
+  FILENAME == URC && $1 != "C" {
+    CQUERY=$9
+    sub("_.*", "", CQUERY)
+    CREF=$10
+    sub("_.*", "", CREF)
+    if($10 == "*" && !(CQUERY in chimera_check)){
+      chimera_match[CQUERY]="NA"
+      chimera_check[CQUERY]="chimera_ok"
+    } else if (CQUERY == CREF){
+      chimera_match[CQUERY]="tandem"
+      chimera_check[CQUERY]="chimera_fail"
+    } else if ($10 != "*"){
+      chimera_match[CQUERY]=$10
+      chimera_check[CQUERY]="chimera_fail"
+    }
+  }
+  
+  # Read derivate check file
+  FILENAME == URD && $1 != "C" {
+    if($10 == "*"){
+      derivate_match[$9]="NA"
+      derivate_check[$9]="derivate_ok"
+    } else {
+      derivate_match[$9]=$10
+      derivate_check[$9]="derivate_fail"
+    }
+  }
+  END {
+    print "[" strftime("%T") "] UMI match filtering..." > "/dev/stderr"
     # Filter reads based on UMI match error
     for (umi in err1){    
       for (read in err1[umi]){
         # Define vars
-        e1 = err1[umi][read];
-        e2 = err2[umi][read];
+        e1 = err1[umi][read]
+        e2 = err2[umi][read]
         # Filter reads not matching both UMIs
         if (e1 != "" && e2 != ""){
           # Filter based on mapping error 
           if (e1 + e2 <= 6 && e1 <= 3 && e2 <= 3){
             # Add read to bin list or replace bin assignment if error is lower
             if (!(read in match_err)){
-              match_umi[read] = umi;
-              match_err[read] = e1 + e2;
+              match_umi[read] = umi
+              match_err[read] = e1 + e2
             } else if (match_err[read] > e1 + e2 ){
-              match_umi[read] = umi;
-              match_err[read] = e1 + e2;
+              match_umi[read] = umi
+              match_err[read] = e1 + e2
             } 
           }
         }
       }
     }
-    print "[" strftime("%T") "] Read orientation filtering..." > "/dev/stderr";
-    # Count +/- strand reads
-    for (s in match_umi){
-      UM=match_umi[s]
-      sub("_rc", "", UM)
-      # Read orientation stats
-      ROC=match(match_umi[s], /_rc/)
-      if (ROC != 0){
-        umi_ro_plus[UM]++
-        roc[s]="+"
+    #--> Output is match_umi 1d array with reads [key] are linked to umi [value] 
+    #--> Output is match_err 1d array with reads [key] are linked to total match err [value]
+    
+    # Extract read strandedness (+/-) from UMI names and count raw UMI bin assignments
+    for (r in match_umi){
+      UMI=match_umi[r]
+      # read orientation and clean UMI name
+      if (match(UMI, /_rc/) != 0){
+         match_ro[r]="-"
+         sub("_rc", "", UMI)
+         umi_ro_neg[UMI]++
+         match_umi[r] = UMI
       } else {
-        umi_ro_neg[UM]++
-        roc[s]="-"
+         match_ro[r]="+"
+         umi_ro_plus[UMI]++
       }
-      # Count reads per UMI bin
-      umi_n_raw[UM]++;
+      # Count reads pr UMI
+      umi_n_raw[UMI]++
     }
     
-    # Calculate read orientation fraction
-    for (u in umi_ro_plus){
-      # Check read orientation fraction
-      if (umi_ro_plus[u] > 1 && umi_ro_neg[u] > 1){
-        if (umi_ro_plus[u]/(umi_ro_neg[u]+umi_ro_plus[u]) < RO_FRAC ){
-          rof_check[u]="rof_subset"
-          rof_sub_neg_n[u] = umi_ro_plus[u]*(1/RO_FRAC-1)
-          rof_sub_pos_n[u] = rof_sub_neg_n[u]
-        } else if (umi_ro_neg[u]/(umi_ro_neg[u]+umi_ro_plus[u]) < RO_FRAC ){
-          rof_check[u]="rof_subset"
-          rof_sub_neg_n[u]=umi_ro_neg[u]*(1/RO_FRAC-1)
-          rof_sub_pos_n[u]=rof_sub_neg_n[u]
+    # Read orientation filtering 
+    if (RO_FRAC != 0){
+      print "[" strftime("%T") "] Read orientation filtering..." > "/dev/stderr"
+    
+      # Calculate read orientation fraction
+      for (u in umi_ro_plus){
+        # Check read orientation fraction
+        if (umi_ro_plus[u] >= 1 && umi_ro_neg[u] >= 1){
+          if (umi_ro_plus[u]/(umi_ro_neg[u]+umi_ro_plus[u]) < RO_FRAC ){
+            rof_check[u]="rof_subset"
+            ROF_N = umi_ro_plus[u]*(1/RO_FRAC-1)
+            rof_sub_target[u] = ROF_N
+            rof_sub_neg_n[u] = ROF_N
+            rof_sub_pos_n[u] = ROF_N
+          } else if (umi_ro_neg[u]/(umi_ro_neg[u]+umi_ro_plus[u]) < RO_FRAC ){
+            rof_check[u]="rof_subset"
+            ROF_N = umi_ro_neg[u]*(1/RO_FRAC-1)
+            rof_sub_target[u] = ROF_N
+            rof_sub_neg_n[u] = ROF_N
+            rof_sub_pos_n[u]= ROF_N
+          } else {
+            rof_check[u]="rof_ok"
+            rof_sub_target[u] = "NA"
+          }
         } else {
-          rof_check[u]="rof_ok"
-          rof_sub_neg_n[u]=MAX_BIN_SIZE
-          rof_sub_pos_n[u]=MAX_BIN_SIZE
-        }
-      } else {
-        rof_check[u]="rof_fail"
-      }
-    }
-    
-    # Subset reads
-    for (s in match_umi){
-      UMI_NAME=match_umi[s]
-      sub("_rc", "", UMI_NAME)
-      if(roc[s] == "+"){
-        if(rof_sub_pos_n[UMI_NAME]-- > 0){
-          ror_filt[s]=UMI_NAME
-        }
-      } else if (roc[s] == "-"){
-        if(rof_sub_neg_n[UMI_NAME]-- > 0){
-          ror_filt[s]=UMI_NAME
+          rof_check[u]="rof_fail"
+          rof_sub_target[u] = "NA"
         }
       }
+      
+      # Subset reads
+      for (r in match_umi){
+        UMI=match_umi[r]
+        if (rof_sub_target[UMI] != "NA"){
+          if(match_ro[r] == "+"){
+            if(rof_sub_pos_n[UMI]-- <= 0){
+              # Remove unused reads from match_umi/match_err arrays
+              delete match_umi[r]
+              delete match_err[r]
+            }
+          } else if (match_ro[r] == "-"){
+            if(rof_sub_neg_n[UMI]-- <= 0){
+              # Remove unused reads from match_umi/match_err arrays
+              delete match_umi[r]
+              delete match_err[r]
+            }
+          }
+        }
+      }
+    } else {
+      for (u in umi_n_raw){
+        rof_check[u]="rof_disabled"
+        rof_sub_target[u]="NA"
+      }
     }
-
-    print "[" strftime("%T") "] UMI match error filtering..." > "/dev/stderr";
+    print "[" strftime("%T") "] UMI match error filtering..." > "/dev/stderr"
     # Calculate UME stats
-    for (s in ror_filt){
-      UM=ror_filt[s]
-      # Count matching reads
-      umi_n[UM]++;
+    for (r in match_umi){
+      UMI=match_umi[r]
       # UMI match error stats
-      umi_me_sum[UM] += match_err[s]
-      umi_me_sq[UM] += (match_err[s])^2
+      umi_me_sum[UMI] += match_err[r]
+      umi_me_sq[UMI] += (match_err[r])^2
+      # Create list of UMIs
+      umi_n[UMI]++ 
     }
-
     # Check UMI match error
     for (u in umi_n){
-      UME_MEAN[u] = umi_me_sum[u]/umi_n[u]
-      UME_SD[u] = sqrt((umi_me_sq[u]-umi_me_sum[u]^2/umi_n[u])/umi_n[u])
-      if (UME_MEAN[u] > UME_MATCH_ERROR || UME_SD[u] > UME_MATCH_ERROR_SD){
+      ume_mean[u] = umi_me_sum[u]/umi_n[u]
+      ume_sd[u] = sqrt((umi_me_sq[u]-umi_me_sum[u]^2/umi_n[u])/umi_n[u])
+      if (ume_mean[u] > UME_MATCH_ERROR || ume_sd[u] > UME_MATCH_ERROR_SD){
         ume_check[u] = "ume_fail"
       } else {
         ume_check[u] = "ume_ok"
       }
     }
-
-    print "[" strftime("%T") "] UMI bin/cluster size ratio filtering..." > "/dev/stderr";
+    print "[" strftime("%T") "] UMI bin/cluster size ratio filtering..." > "/dev/stderr"
     for (u in umi_n){
       CLUSTER_SIZE=u
-      sub(".*;", "", CLUSTER_SIZE)
+      gsub(".*;size=|;", "", CLUSTER_SIZE)
       bcr[u]=umi_n_raw[u]/CLUSTER_SIZE
       if (bcr[u] > BIN_CLUSTER_RATIO){
         bcr_check[u] = "bcr_fail"
@@ -571,29 +639,49 @@ $GAWK \
         bcr_check[u] = "bcr_ok"
       }
     }
-
     # Print filtering stats
-    for (u in umi_n){
-      print u, umi_n_raw[u], umi_n[u], umi_ro_plus[u], umi_ro_neg[u], \
-        rof_sub_pos_n[u] + umi_ro_plus[u], rof_sub_neg_n[u] + umi_ro_neg[u], rof_check[u], \
-        UME_MEAN[u], UME_SD[u], ume_check[u], bcr[u], bcr_check[u]\
+    for (u in umi_n_raw){
+      if (rof_check[u] ume_check[u] bcr_check[u] chimera_check[u] derivate_check[u] ~ /fail/){
+        filter_result[u] = "fail"
+      } else {
+        filter_result[u] = "ok"
+      }
+      print \
+        u,\
+        umi_n_raw[u]+0,\
+        umi_ro_plus[u]+0,\
+        umi_ro_neg[u]+0,\
+        umi_ro_plus[u]/(umi_ro_neg[u]+umi_ro_plus[u])+0, \
+        rof_check[u],\
+        rof_sub_target[u],\
+        ume_mean[u],\
+        ume_sd[u],\
+        ume_check[u],\
+        bcr[u],\
+        bcr_check[u],\
+        chimera_match[u],\
+        chimera_check[u],\
+        derivate_match[u],\
+        derivate_check[u],\
+        filter_result[u] \
         > BD"/stats/"output
     }
-	
-    print "[" strftime("%T") "] Print UMI matches..." > "/dev/stderr"; 
-    for (s in ror_filt){
-      UMI_NAME=ror_filt[s]
-      if( \
-          ume_check[UMI_NAME] == "ume_ok" && \
-          rof_check[UMI_NAME] == "rof_ok" && \
-          bcr_check[UMI_NAME] == "bcr_ok" \
-      ){print UMI_NAME, s, match_err[s]} 
+    
+    print "[" strftime("%T") "] Print UMI matches..." > "/dev/stderr" 
+    for (r in match_umi){
+      UMI=match_umi[r]
+      print UMI, r, match_err[r]
     }
+    
     # Print to terminal
-    print "[" strftime("%T") "] Done." > "/dev/stderr"; 
+    print "[" strftime("%T") "] Done." > "/dev/stderr" 
   }
-' $umi1_map $umi2_map > umi_binning/read_binning/mapping_res/$output
+' \
+$umi1_map \
+$umi2_map \
+> umi_binning/read_binning/mapping_res/$output
 }
+export -f umi_stats
 
 # Configure pathing
 cd $OUT_DIR
@@ -602,7 +690,7 @@ cd ..
 if [ ! -f "$BINNING_DIR/umi_bin_map.txt" ]; then
 
 # Input/Ouput configuration
-export -f umi_stats
+
 mkdir $BINNING_DIR/mapping_1
 mkdir $BINNING_DIR/mapping_2
 mkdir $BINNING_DIR/mapping_res
@@ -615,7 +703,6 @@ echo "$UMI_MATCH_ERROR_SD" > $BINNING_DIR/conf/UMI_MATCH_ERROR_SD.txt
 echo "$RO_FRAC" > $BINNING_DIR/conf/RO_FRAC.txt 
 echo "$MAX_BIN_SIZE" > $BINNING_DIR/conf/MAX_BIN_SIZE.txt
 echo "$BIN_CLUSTER_RATIO" > $BINNING_DIR/conf/BIN_CLUSTER_RATIO.txt
-echo "umi_name read_n_raw read_n_filt read_n_plus read_n_neg read_max_plus read_max_neg read_orientation_ratio ror_filter umi_match_error_mean umi_match_error_sd ume_filter bin_cluster_ratio bcr_filter" > $BINNING_DIR/umi_binning_stats.txt
 
 # Get list of UMI IDs
 cut -f1 $BINNING_DIR/umi1_map.sam > $BINNING_DIR/umi1_id.txt &
@@ -655,164 +742,67 @@ cat $BINNING_DIR/stats/*.txt >> $BINNING_DIR/umi_binning_stats.txt
 else echo "UMI-to-bin links found. Skipping..."; fi;
 
 # Extract binned reads
+
 umi_binning() {
   # Input
-  local UMIMAP=$1
-  local OUT=$2
+  local READS=$1
+  local UMIMAP=$2
+  local OUT=$3
 
   # Binning
+  $GAWK '
+    NR==FNR{
+      UMI_SUBSET[$0]=""
+      next
+    }
+    {
+      if ($1 in UMI_SUBSET){
+        print $0
+      }
+    }
+  ' - $UMIMAP |\
   $GAWK -v out="$OUT" '
-    BEGIN {g=1; outsub=""out"/"g; system("mkdir \047" outsub "\047");}
     NR==FNR {
       # Get read name
       sub(";.*", "", $1);
       # Associate read name and umi match
       bin[$2]=$1;
-      # Assign umi to a folder group if it has none
-      if (foldergrp[$1] == ""){
-        j++;
-        if (j <= 4000){
-          foldergrp[$1]=g;
-        } else {
-          j = 0;
-          g++;
-          foldergrp[$1]=g;
-          outsub=""out"/"g;
-          system("mkdir \047" outsub "\047");
-        }
-      }
       next;
     }
     FNR%4==1 {
       read=substr($1,2);
       bin_tmp=bin[read]
       if ( bin_tmp != "" ){
-        binfile=out"/"foldergrp[bin_tmp]"/"bin_tmp"bins.fastq";
-        print > binfile;
-        getline; print > binfile;
-        getline; print > binfile;
-        getline; print > binfile;
+        binfile=out"/"bin_tmp"bins.fastq";
+        READ_RECORD=$0
+        getline; READ_RECORD=READ_RECORD"\n"$0
+        getline; READ_RECORD=READ_RECORD"\n"$0
+        getline; print READ_RECORD"\n"$0 > binfile;
       }
     }
-  ' $UMIMAP -
+  ' - $READS
 }
 
-if [ ! -f "$BINNING_DIR/bins.txt" ]; then
+if [ ! -f "$OUT_DIR/processed_bins.txt" ]; then
 
 export -f umi_binning
 
-cat $TRIM_DIR/reads_tf.fq |\
+cut -d " " -f1 $BINNING_DIR/umi_bin_map.txt |\
+  sort -u |\
   $GNUPARALLEL \
     --env umi_binning \
-    -L4 \
+    -N 4000 \
 	-j $THREADS \
-	--block 300M \
 	--pipe \
-  "mkdir $BINNING_DIR/bins/job{#};\
-  cat | umi_binning $BINNING_DIR/umi_bin_map.txt\
-  $BINNING_DIR/bins/job{#}"
-
-aggregate_bins() {
-  # Input
-  local IN=$1
-  local OUTDIR=$2
-  local OUTNAME=$3
-  local JOB=$4
-
-  # Determine output folder
-  local BIN=$(( ($JOB - 1)/4000 ))
-  mkdir -p $OUTDIR/$BIN
-
-  # Aggregate data
-  cat $IN > $OUTDIR/$BIN/$OUTNAME  
-}
-
-export -f aggregate_bins
-
-mkdir $BINNING_DIR/jobs
-find $BINNING_DIR/bins -type d -name "job*" -printf '%f\n' | xargs -i --max-procs=$THREADS  bash -c 'find umi_binning/read_binning/bins/{} -type f -name "*bins.fastq" > umi_binning/read_binning/jobs/{}'
-cat $BINNING_DIR/jobs/job* | awk -F / '{print $NF}' | sort | uniq > $BINNING_DIR/bins.txt
-rm -r $BINNING_DIR/jobs
-
-cat $BINNING_DIR/bins.txt |\
-  $GNUPARALLEL \
-    --env aggregate_bins \
-    -j $THREADS \
-	"aggregate_bins '$BINNING_DIR/bins/*/*/'{/} \
-    $BINNING_DIR/bins {/} {#}"
-
-#rm -r $BINNING_DIR/bins/job*
+  "
+    mkdir $BINNING_DIR/bins/{#}
+    cat |\
+      umi_binning \
+        $TRIM_DIR/reads_tf.fq \
+        $BINNING_DIR/umi_bin_map.txt \
+        $BINNING_DIR/bins/{#}
+  "
 
 else echo "List of UMI bins found. Skipping..."; fi;
-
-if [ ! -f "$UMI_DIR/umi12uf.fa" ]; then
-
-# Filtering based on sub UMIs
-cat \
-  $UMI_DIR/reads_tf_start.fq \
-  <($SEQTK seq -r $UMI_DIR/reads_tf_end.fq) |\
-$CUTADAPT \
-  -j $THREADS \
-  -e 0.2 \
-  -O 11 \
-  -m 18 \
-  -M 18 \
-  --discard-untrimmed \
-  -g $FW1...$FW2 \
-  -g $RV1...$RV2 \
-  - 2> $UMI_DIR/sumi_trim.log |\
-  $GAWK '
-    NR%4==1{print ">" substr($1, 2)}
-    NR%4==2{print $0}
-  ' > $UMI_DIR/sumi.fa
-
-$USEARCH \
-  -fastx_uniques $UMI_DIR/sumi.fa \
-  -fastaout $UMI_DIR/sumi_u.fa \
-  -relabel sumi \
-  -strand plus \
-  -sizeout \
-  -minuniquesize 2
-
-PATTERN="[ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}"
-grep -B1 -E "$PATTERN" $UMI_DIR/sumi_u.fa |\
-  sed '/^--$/d' > $UMI_DIR/sumi_f.fa
-
-$SEQTK seq -r $UMI_DIR/sumi_f.fa > $UMI_DIR/sumi_frc.fa
-
-$GAWK \
-  -v UF="$UMI_DIR/sumi_f.fa" \
-  -v UR="$UMI_DIR/sumi_frc.fa" \
-  -v UFR="umi12u.fa" \
-  '
-  (FILENAME == UF && FNR%2==1){
-    SIZE=$1
-    sub(".*=|;", "", SIZE)
-    getline
-    UMI_FWD[$0]=SIZE
-  }
-  (FILENAME == UR && FNR%2==1){
-    SIZE=$1
-    gsub(".*=|;", "", SIZE)
-    getline
-    UMI_RV[$0]=SIZE
-  }
-  (FILENAME == UFR && FNR%2==1){
-    NAME=$1
-    getline
-    # Extract UMI1 and UMI2 in both orientations
-    s1 = substr($1, 1, 18);
-    s2 = substr($1, 19, 36);
-    if (s1 in UMI_FWD && s2 in UMI_RV){
-      print NAME UMI_FWD[s1] ";" UMI_RV[s2] ";" s1 ";" s2 ";\n" $1 
-    }
-  }
- ' \
- $UMI_DIR/sumi_f.fa \
- $UMI_DIR/sumi_frc.fa \
- $UMI_DIR/umi12u.fa \
- > $UMI_DIR/umi12uf.fa
- 
-else echo "Filtered UMI sequences found. Skipping..."; fi;
 
 cd ..
