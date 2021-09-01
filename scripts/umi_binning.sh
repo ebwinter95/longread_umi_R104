@@ -6,6 +6,8 @@
 # IMPLEMENTATION
 #    authors  Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
+#             Ryan Ziels (ziels@mail.ubc.ca)
+#             Emil Aarre Sørensen (easo@bio.aau.dk)
 #             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 #
