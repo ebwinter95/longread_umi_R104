@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # DESCRIPTION
 #    longread_umi nanopore_pipeline script. 
 #    
 # IMPLEMENTATION
-#    author   Søren Karst (sorenkarst@gmail.com)
+#    author   SÃ¸ren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
 #             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
@@ -212,7 +212,6 @@ if [ -z ${UMI_DIR+x} ]; then
     -t $THREADS          `# Number of threads`
 fi
 
-
 # Sample UMI bins for testing
 $GAWK \
   -v SEED="$RANDOM"  \
@@ -264,7 +263,6 @@ $GAWK \
 bins_n=$(awk 'END{print NR}' $OUT_DIR/processed_bins.txt)
 if [ ! $bins_n -ge 1 ]; then echo "ERROR in UMI binning stage. Aborting pipeline..." && exit 1; fi;
 
-
 # Racon consensus polishing
 CON_NAME=raconx${CON_N}
 CON_DIR=$OUT_DIR/$CON_NAME
@@ -285,22 +283,56 @@ else
 	if [ ! $umis_n_rac -ge 2 ]; then echo "ERROR in Racon consensus polishing stage. Aborting pipeline..." && exit 1; fi;
 fi
 
+# Generate bin files for each folder
+export BINNING_DIR=$(pwd)/$UMI_DIR/read_binning
+find $BINNING_DIR/bins/ -type d | awk '{if(NR>1)print}' | xargs -i --max-procs=1 bash -c 'file=$(basename {}) && ls {} | sed -e "s/\.fastq//" | awk "{for(i=0;i<2;i++)print}" | sed "1~2N; s/bins/_/1" > $BINNING_DIR/bins/bins$file.txt'
+
+# Settings for running medaka in parallel (4000 bins per process)
+export PROCESSES=$(ls -d $BINNING_DIR/bins/*/ | wc -l)
+if [ $PROCESSES -gt $THREADS ]; then
+  export PROCESSES=$THREADS;
+  else export PROCESSES=$PROCESSES;
+  fi;
+echo "Number of processes for Medaka = $PROCESSES"
+
+# Threads available for each medaka process
+export M_THREADS=$(( $THREADS/$PROCESSES ))
+echo "Threads available for each medaka process $M_THREADS"
+
+# Medaka jobs
+export MEDAKA_JOBS
+if [ $MEDAKA_JOBS -gt $M_THREADS ]; then
+   export MJ_THREADS=$M_THREADS;
+   else export MJ_THREADS=$MEDAKA_JOBS;
+   fi;
+
+if [ $MEDAKA_JOBS -gt $MJ_THREADS ]; then
+    echo "The number of specified medaka jobs in input exceeds the number of available threads per process.
+    Defaulting to 1 medaka job per available thread. Running $MJ_THREADS medaka jobs for each process"
+  else echo "Number of medaka jobs for each process $MEDAKA_JOBS";
+  fi;
+
+export MAX_LENGTH
+export CHUNK=$((MAX_LENGTH))
+export MEDAKA_MODEL
 
 # Medaka polishing
-CON=${CON_DIR}/consensus_${CON_NAME}.fa
+export CON=${CON_DIR}/consensus_${CON_NAME}.fa
 for j in `seq 1 $POL_N`; do
-  POLISH_NAME=medakax${j}
-  POLISH_DIR=${CON_DIR}_${POLISH_NAME}
-  longread_umi polish_medaka \
+export POLISH_NAME=medakax${j}
+export POLISH_DIR=${CON_DIR}_${POLISH_NAME}
+mkdir $POLISH_DIR
+  find $BINNING_DIR/bins/ -type d | awk '{if(NR>1)print}' | xargs -i --max-procs=$PROCESSES bash -c 'file=$(basename {}) && longread_umi polish_medaka \
     -c $CON                              `# Path to consensus data`\
     -m $MEDAKA_MODEL                     `# Path to consensus data`\
-    -l $MAX_LENGTH                       `# Sensible chunk size`\
-    -d $UMI_DIR                          `# Path to UMI bins`\
-    -o $POLISH_DIR                       `# Output folder`\
-    -t $THREADS                          `# Number of threads`\
-    -n $OUT_DIR/processed_bins.txt       `# List of bins to process`\
-    -T $MEDAKA_JOBS                      `# Uses ALL threads with medaka`
-  CON=$POLISH_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa
+    -l $CHUNK                            `# Sensible chunk size`\
+    -d {}                                `# Path to UMI bins`\
+    -o $POLISH_DIR/$file                 `# Output folder`\
+    -t $M_THREADS                        `# Number of threads`\
+    -n $BINNING_DIR/bins/bins$file.txt   `# List of bins to process`\
+    -T $MJ_THREADS                       `# Uses ALL threads with medaka`'
+  find $POLISH_DIR -type f -name "consensus*.fa" -exec cat {} + > $POLISH_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa
+ export CON=$POLISH_DIR/consensus_${CON_NAME}_${POLISH_NAME}.fa
 done
 
 # Check if Medaka polishing completed successfully
@@ -310,7 +342,6 @@ else
 	umis_n_medak=$(awk 'END{print NR}' $CON)
 	if [ ! $umis_n_medak -ge 2 ]; then echo "ERROR in Medaka polishing stage. Aborting pipeline..." && exit 1; fi;
 fi
-
 
 # Trim UMI consensus data
 longread_umi trim_amplicon \
@@ -331,7 +362,6 @@ else
 	umis_n_trim=$(awk 'END{print NR}' $OUT_DIR/$(basename $CON))
 	if [ ! $umis_n_trim -ge 2 ]; then echo "ERROR in UMI consensus trimming stage. Aborting pipeline..." && exit 1; fi;
 fi
-
 
 ## Subset to UMI consensus sequences with min read coverage
 if [ ! -f $OUT_DIR/consensus_${CON_NAME}_${POLISH_NAME}_${UMI_COVERAGE_MIN}.fa ]; then
