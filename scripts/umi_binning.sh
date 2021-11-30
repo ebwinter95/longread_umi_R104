@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # DESCRIPTION
 #    Script for binning long reads based on UMIs. Part of 
 #    longread_umi.
@@ -6,7 +6,6 @@
 # IMPLEMENTATION
 #    authors  Søren Karst (sorenkarst@gmail.com)
 #             Ryan Ziels (ziels@mail.ubc.ca)
-#             Emil Aarre Sørensen (easo@bio.aau.dk)
 #             Mantas Sereika (mase@bio.aau.dk)
 #    license  GNU General Public License
 #
@@ -153,7 +152,7 @@ if [ -z ${TRIM_FLAG+x} ]; then
   > $TRIM_DIR/adapters.py
   
   # Add working folder to python path
-  export PYTHONPATH=$PYTHONPATH:$TRIM_DIR
+  PYTHONPATH=$PYTHONPATH:$TRIM_DIR
   
   # Perform porechop and filtlong in parallel
   FT_THREADS=$(( $THREADS/10 ))
@@ -194,7 +193,7 @@ else echo "Trimmed reads found. Skipping..."; fi;
 
 ### Extract UMI references sequences ------------------------------------------- 
 if [ ! -d "$OUT_DIR/umi_ref" ]; then mkdir $OUT_DIR/umi_ref; fi;
-UMI_DIR=$(pwd)/$OUT_DIR/umi_ref
+export UMI_DIR=$(pwd)/$OUT_DIR/umi_ref
 
 if [ ! -f "$UMI_DIR/umi_ref_derivates.txt" ]; then
 
@@ -258,8 +257,7 @@ $USEARCH \
   -strand both \
   -sort size \
   -maxaccepts 0 \
-  -maxrejects 0 \
-  -mincols 34 # Doesn't work...
+  -maxrejects 0
 
 $GAWK \
   '
@@ -324,8 +322,7 @@ if [ ! -d "$OUT_DIR/read_binning" ]; then mkdir $OUT_DIR/read_binning; fi;
 if [ ! -d "$OUT_DIR/read_binning/bins" ]; then mkdir $OUT_DIR/read_binning/bins; fi;
 export BINNING_DIR=$(pwd)/$OUT_DIR/read_binning
 
-if [ ! -f "$BINNING_DIR/umi1_map.sam" ] && [ ! -f "$BINNING_DIR/umi2_map.sam" ]; then
-
+if [ ! -f "$BINNING_DIR/umi_ref_b1.fa" ] && [ ! -f "$BINNING_DIR/umi_ref_b2.fa" ]; then
 
 # Extract UMI region
 $GAWK -v BD="$BINNING_DIR" -v TL="$START_READ_CHECK" '
@@ -346,7 +343,6 @@ $GAWK -v BD="$BINNING_DIR" -v TL="$END_READ_CHECK" '
    }
 ' $UMI_DIR/reads_tf_end.fq
 
-
 # Divide in barcode1 and barcode2 files
 cat $UMI_DIR/umi_ref.fa <($SEQTK seq -r $UMI_DIR/umi_ref.fa |\
   $GAWK 'NR%2==1{print $0 "_rc"; getline; print};') |\
@@ -359,70 +355,56 @@ cat $UMI_DIR/umi_ref.fa <($SEQTK seq -r $UMI_DIR/umi_ref.fa |\
        print substr($0, 19, 18)  > BD"/umi_ref_b2.fa";  
      }'
 
+else echo "Extracted UMI regions found. Skipping..."; fi;
+
 # Map UMIs to UMI references
 ## Important settings:
 ## -N : diasble iterative search. All possible hits are found.
 ## -F 20 : Removes unmapped and reverse read matches. Keeps UMIs
 ##         in correct orientations.
 
-$BWA index \
-  $BINNING_DIR/reads_tf_umi1.fa
-$BWA \
-  index \
-  $BINNING_DIR/reads_tf_umi2.fa
+if [ ! -f "$BINNING_DIR/reads_tf_umi1.fa.sa" ] && [ ! -f "$BINNING_DIR/reads_tf_umi2.fa.sa" ]; then
 
-$BWA aln \
-  $BINNING_DIR/reads_tf_umi1.fa \
-  $BINNING_DIR/umi_ref_b1.fa \
-  -n 3 \
-  -t $THREADS \
-  -N \
-  > $BINNING_DIR/umi1_map.sai
+# Indexing reads
+find $BINNING_DIR -type f -name "reads_tf_umi*.fa" | xargs -i --max-procs=2 bash -c '$BWA index {}'
 
-$BWA samse \
-  -n 10000000 \
-  $BINNING_DIR/reads_tf_umi1.fa \
-  $BINNING_DIR/umi1_map.sai \
-  $BINNING_DIR/umi_ref_b1.fa |\
-$SAMTOOLS view \
-  -F 20 \
-  - \
-  > $BINNING_DIR/umi1_map.sam
+else echo "Read index files found. Skipping..."; fi;
 
-$BWA aln \
-  $BINNING_DIR/reads_tf_umi2.fa \
-  $BINNING_DIR/umi_ref_b2.fa \
-  -n 3 \
-  -t $THREADS \
-  -N \
-  > $BINNING_DIR/umi2_map.sai
- 
-$BWA samse \
-  -n 10000000 \
-  $BINNING_DIR/reads_tf_umi2.fa \
-  $BINNING_DIR/umi2_map.sai \
-  $BINNING_DIR/umi_ref_b2.fa |\
-$SAMTOOLS view \
-  -F 20 \
-  - \
-  > $BINNING_DIR/umi2_map.sam
+if [ ! -f "$BINNING_DIR/map_umi1.sai" ] && [ ! -f "$BINNING_DIR/map_umi2.sai" ]; then
+
+# Mapping UMIs to UMI references
+export BWA_THREADS=$(( $THREADS/2 ))
+  if (( BWA_THREADS < 1 )); then
+   export BWA_THREADS=1
+  elif (( BWA_THREADS > THREADS )); then
+   export BWA_THREADS=1
+  fi
+  
+find $BINNING_DIR -type f -name "reads_tf_umi*.fa" | xargs -i --max-procs=2 bash -c 'file=$(basename {} | grep -o -E '[0-2]') && $BWA aln {} $BINNING_DIR/umi_ref_b$file.fa -n 3 -t $BWA_THREADS -N > $BINNING_DIR/map_umi$file.sai'
+  
+else echo "Alignment files found. Skipping..."; fi;
+
+# Converting sai to sam format
+if [ ! -f "$BINNING_DIR/map_umi1.sam" ] && [ ! -f "$BINNING_DIR/map_umi2.sam" ]; then
+
+find $BINNING_DIR -type f -name "reads_tf_umi*.fa" | xargs -i --max-procs=2 bash -c 'file=$(basename {} | grep -o -E '[0-2]') && $BWA samse -n 10000000 {} $BINNING_DIR/map_umi$file.sai $BINNING_DIR/umi_ref_b$file.fa | $SAMTOOLS view -F 20 - > $BINNING_DIR/map_umi$file.sam'
 
 else echo "UMI mapping files found. Skipping..."; fi;
 
 # UMI binning and filtering
 function umi_stats {
 
-umi1_map=$1
-umi2_map=$2
+map_umi1=$1
+map_umi2=$2
 output=$3
 
 $GAWK \
   -v BD="$BINNING_DIR" \
   -v output="$output" \
-  -v UM1="$umi1_map" \
-  -v UM2="$umi2_map" \
-  -v URC=umi_binning/umi_ref/umi_ref_chimera.txt \
-  -v URD=umi_binning/umi_ref/umi_ref_derivates.txt \
+  -v UM1="$map_umi1" \
+  -v UM2="$map_umi2" \
+  -v URC="$UMI_DIR/umi_ref_chimera.txt" \
+  -v URD="$UMI_DIR/umi_ref_derivates.txt" \
   -v UME_MATCH_ERROR="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR.txt)" \
   -v UME_MATCH_ERROR_SD="$(cat umi_binning/read_binning/conf/UMI_MATCH_ERROR_SD.txt)" \
   -v RO_FRAC="$(cat umi_binning/read_binning/conf/RO_FRAC.txt)" \
@@ -678,8 +660,10 @@ $GAWK \
     print "[" strftime("%T") "] Done." > "/dev/stderr" 
   }
 ' \
-$umi1_map \
-$umi2_map \
+$map_umi1 \
+$map_umi2 \
+$UMI_DIR/umi_ref_chimera.txt \
+$UMI_DIR/umi_ref_derivates.txt \
 > umi_binning/read_binning/mapping_res/$output
 }
 export -f umi_stats
@@ -691,7 +675,6 @@ cd ..
 if [ ! -f "$BINNING_DIR/umi_bin_map.txt" ]; then
 
 # Input/Ouput configuration
-
 mkdir $BINNING_DIR/mapping_1
 mkdir $BINNING_DIR/mapping_2
 mkdir $BINNING_DIR/mapping_res
@@ -705,14 +688,18 @@ echo "$RO_FRAC" > $BINNING_DIR/conf/RO_FRAC.txt
 echo "$MAX_BIN_SIZE" > $BINNING_DIR/conf/MAX_BIN_SIZE.txt
 echo "$BIN_CLUSTER_RATIO" > $BINNING_DIR/conf/BIN_CLUSTER_RATIO.txt
 
+if [ ! -f "$BINNING_DIR/umi_id.txt" ]; then
+
 # Get list of UMI IDs
-cut -f1 $BINNING_DIR/umi1_map.sam > $BINNING_DIR/umi1_id.txt &
-cut -f1 $BINNING_DIR/umi2_map.sam > $BINNING_DIR/umi2_id.txt
+cut -f1 $BINNING_DIR/map_umi1.sam > $BINNING_DIR/umi1_id.txt &
+cut -f1 $BINNING_DIR/map_umi2.sam > $BINNING_DIR/umi2_id.txt
 cat $BINNING_DIR/umi1_id.txt $BINNING_DIR/umi2_id.txt | sed '/_rc/d' | sort -u > $BINNING_DIR/umi_id.txt
 
+else echo "List of UMI_IDs found. Skipping..."; fi;
+
 # Split the list into chunks for parallel processing
-splits=$(($THREADS / 2))
-if [ $splits -gt 60 ]; then splits=60; fi;
+splits=$(($THREADS))
+if [ $splits -gt 50 ]; then splits=50; fi;
 split -n l/$splits -d $BINNING_DIR/umi_id.txt $BINNING_DIR/ids/id_
 
 for file in $BINNING_DIR/ids/*; do
@@ -722,23 +709,23 @@ for file in $BINNING_DIR/ids/*; do
 done
 
 # Generate subsets of the mapping files
-find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi1_map.sam > umi_binning/read_binning/mapping_1/{}.sam & grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/umi2_map.sam > umi_binning/read_binning/mapping_2/{}.sam'
+find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$splits  bash -c 'grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/map_umi1.sam > umi_binning/read_binning/mapping_1/{}.sam & grep -w -F -f umi_binning/read_binning/ids/{} umi_binning/read_binning/map_umi2.sam > umi_binning/read_binning/mapping_2/{}.sam'
 
 # Calculate UMI statistics and filter
-find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits / 3)) bash -c 'umi_stats umi_binning/read_binning/mapping_1/{}.sam umi_binning/read_binning/mapping_2/{}.sam {}.txt'
+find $BINNING_DIR/ids -type f -name "id_*" -printf '%f\n' | xargs -i --max-procs=$(($splits)) bash -c 'umi_stats umi_binning/read_binning/mapping_1/{}.sam umi_binning/read_binning/mapping_2/{}.sam {}.txt'
 cat $BINNING_DIR/mapping_res/*.txt > $BINNING_DIR/umi_bin_map.txt
 cat $BINNING_DIR/stats/*.txt >> $BINNING_DIR/umi_binning_stats.txt
 
 # Clean-up
-#rm $BINNING_DIR/umi1_id.txt
-#rm $BINNING_DIR/umi2_id.txt
-#rm -r $BINNING_DIR/ids
-#rm -r $BINNING_DIR/ids_rc
-#rm -r $BINNING_DIR/mapping_1
-#rm -r $BINNING_DIR/mapping_2
-#rm -r $BINNING_DIR/mapping_res
-#rm -r $BINNING_DIR/stats
-#rm -r $BINNING_DIR/conf
+rm $BINNING_DIR/umi1_id.txt
+rm $BINNING_DIR/umi2_id.txt
+rm -r $BINNING_DIR/ids
+rm -r $BINNING_DIR/ids_rc
+rm -r $BINNING_DIR/mapping_1
+rm -r $BINNING_DIR/mapping_2
+rm -r $BINNING_DIR/mapping_res
+rm -r $BINNING_DIR/stats
+rm -r $BINNING_DIR/conf
 
 else echo "UMI-to-bin links found. Skipping..."; fi;
 
@@ -784,7 +771,7 @@ umi_binning() {
   ' - $READS
 }
 
-if [ ! -f "$OUT_DIR/processed_bins.txt" ]; then
+if [ ! -f "processed_bins.txt" ]; then
 
 export -f umi_binning
 
