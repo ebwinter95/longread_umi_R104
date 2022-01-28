@@ -1,6 +1,8 @@
 # longread_umi 
 
-A collection of scripts for processing longread UMI data.
+A collection of scripts for processing long read UMI data. 
+This repository is an updated version of the [original pipeline](https://github.com/SorenKarst/longread_umi), featuring improved parallelization, reduced RAM usage, and up-to-date depdencies for processing Nanopore read data.
+The repository is actively maintained by Emil Aarre Sørensen (easo@bio.aau.dk) and Mantas Sereika (mase@bio.aau.dk).
 
 **Table of contents**
 - [Installation](#installation)
@@ -10,7 +12,7 @@ A collection of scripts for processing longread UMI data.
 - [Usage](#usage)
 
 **Citation**  
-SM Karst, RM Ziels, RH Kirkegaard, EA Sørensen, D. McDonald, Q Zhu, R Knight, & M Albertsen. (2020). Enabling high-accuracy long-read amplicon sequences using unique molecular identifiers with Nanopore or PacBio sequencing. [bioRxiv, 6459039](https://www.biorxiv.org/content/10.1101/645903v3).
+SM Karst, et al. (2021). High-accuracy long-read amplicon sequences using unique molecular identifiers with Nanopore or PacBio sequencing. [nature methods](https://www.nature.com/articles/s41592-020-01041-y).
 
 ## Installation
 
