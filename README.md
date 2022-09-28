@@ -1,7 +1,7 @@
 # longread_umi 
 
 A collection of scripts for processing long read UMI data. 
-This repository is an updated version of the [original pipeline](https://github.com/SorenKarst/longread_umi), featuring improved parallelization, reduced RAM usage, and up-to-date depdencies for processing Nanopore read data.
+This repository is an updated version of the [original pipeline](https://github.com/SorenKarst/longread_umi), featuring improved parallelization, reduced RAM usage, and up-to-date dependencies for processing Nanopore read data.
 The repository is actively maintained by Emil Aarre Sørensen (easo@bio.aau.dk) and Mantas Sereika (mase@bio.aau.dk).
 
 **Table of contents**
