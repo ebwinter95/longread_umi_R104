@@ -20,7 +20,7 @@ dependencies:
 - parallel=20210622
 - racon=1.4.20
 - minimap2=2.20
-- medaka=1.4.3 
+- medaka=1.8.1 
 - gawk=5.1.0
 - cutadapt=3.4
 - filtlong=0.2.0
