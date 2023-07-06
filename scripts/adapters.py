@@ -74,18 +74,9 @@ class Adapter(object):
 #             end_sequence=('Barcode_2_end', 'TTTTTTTTGGGGGGGGCCCCCCCCAAAAAAAA'))
 
 
-ADAPTERS = [Adapter('SQK-NSK007',
-                    start_sequence=('SQK-NSK007_Y_Top', 'AATGTACTTCGTTCAGTTACGTATTGCT'),
-                    end_sequence=('SQK-NSK007_Y_Bottom', 'GCAATACGTAACTGAACGAAGT')),
-            Adapter('NCEC_ADP_FWRV',
-                    start_sequence=('ncec_adpfwrv', 'GTCTTCTGCTTGAATGATACGGCG'),
-                    end_sequence=('ncec_adpfwrv_rv', 'CGCCGTATCATTCAAGCAGAAGAC')),
-            Adapter('NCEC_ADP_FWFW',
-                    start_sequence=('ncec_adpfwfw', 'GTCTTCTGCTTGCAAGCAGAAGAC'),
-                    end_sequence=('ncec_adpfwfw_rv', 'GTCTTCTGCTTGCAAGCAGAAGAC')),
-            Adapter('NCEC_ADP_RVRV',
-                    start_sequence=('ncec_adprvrv', 'CGCCGTATCATTAATGATACGGCG'),
-                    end_sequence=('ncec_adprvrv_rv', 'CGCCGTATCATTAATGATACGGCG'))]
+ADAPTERS = [Adapter('Barcode 1',
+                    start_sequence=('Barcode_1_top', 'TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCT'),
+                    end_sequence=('Barcode_1_bottom', 'GCAATACGTAACTGAACGAAGTACAGG'))]
 
 
 def make_full_native_barcode_adapter(barcode_num):
