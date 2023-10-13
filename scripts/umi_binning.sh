@@ -231,9 +231,9 @@ paste -d "" <( sed -n '1~4s/^@/>/p;2~4p' $UMI_DIR/umi1.fq ) \
 
 # Extract UMI pairs with correct patterns 
 
-# Pattern: (NNNYRNNNYRNNNYRNNN NNNYRNNNYRNNNYRNNN)
-PATTERN="[ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{6}\
-[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}"
+# Pattern: (NNYRNNYRNNYRNN NNYRNNYRNNYRNN)
+PATTERN="[ATCG]{2}[CT][AG][ATCG]{2}[CT][AG][ATCG]{2}[CT][AG][ATCG]{4}\
+[CT][AG][ATCG]{2}[CT][AG][ATCG]{2}[CT][AG][ATCG]{2}"
 grep -B1 -E "$PATTERN" $UMI_DIR/umi12.fa |\
   sed '/^--$/d' > $UMI_DIR/umi12f.fa
 
